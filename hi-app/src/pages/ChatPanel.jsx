@@ -82,7 +82,7 @@ const ChatPanel = () => {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-white">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-white ">
         {messages.map((msg, index) => (
           <div key={index} className="relative group">
             <div
@@ -94,8 +94,8 @@ const ChatPanel = () => {
               className={`relative max-w-[75%] px-4 py-2 text-sm whitespace-pre-wrap transition break-words
                 ${
                   msg.sender === "me"
-                    ? "bg-purple-600 text-white ml-auto rounded-2xl rounded-br-none before:content-[''] before:absolute before:right-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-l-purple-600"
-                    : "bg-gray-200 text-black rounded-2xl rounded-bl-none before:content-[''] before:absolute before:left-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-r-gray-200"
+                    ? "bg-purple-600 mt-8 text-white ml-auto rounded-2xl rounded-br-none before:content-[''] before:absolute before:right-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-l-purple-600"
+                    : "bg-purple-400 text-black rounded-2xl rounded-bl-none before:content-[''] before:absolute before:left-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-r-gray-200"
                 }`}
             >
               {msg.text}
