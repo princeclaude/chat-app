@@ -2,8 +2,3 @@
 @tailwind components;
 @tailwind utilities;
 
-@layer components {
-  .custom-toast {
-    @apply bg-white text-purple-700 shadow-md border border-purple-100 rounded-lg px-4 py-3 text-sm;
-}
-}
