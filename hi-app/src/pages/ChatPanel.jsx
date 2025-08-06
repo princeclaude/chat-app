@@ -7,7 +7,7 @@ import {
   FaEdit,
   FaTrash,
   FaHeart,
-    FaCopy,
+  FaCopy,
   FaImage,
 } from "react-icons/fa";
 import { useEffect, useRef, useState } from "react";
@@ -66,7 +66,7 @@ const ChatPanel = () => {
   return (
     <div className="flex flex-col h-screen bg-white">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-white shadow-md sticky top-0 z-50">
+      <div className="flex items-center justify-between px-4 py-3 sticky top-0 z-50 backdrop-blur-md bg-white/70 border-b">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(-1)}>
             <FaArrowLeft className="text-lg text-gray-600" />
@@ -81,8 +81,8 @@ const ChatPanel = () => {
         <FaPhoneAlt className="text-purple-600 text-xl" />
       </div>
 
-      {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3 bg-white">
         {messages.map((msg, index) => (
           <div key={index} className="relative group">
             <div
@@ -91,11 +91,12 @@ const ChatPanel = () => {
                   ? setSelectedMessageIndex(null)
                   : setSelectedMessageIndex(index)
               }
-              className={`max-w-[75%] px-4 py-2 rounded-xl text-sm whitespace-pre-wrap transition ${
-                msg.sender === "me"
-                  ? "bg-purple-600 text-white ml-auto"
-                  : "bg-gray-200 text-black"
-              }`}
+              className={`relative max-w-[75%] px-4 py-2 text-sm whitespace-pre-wrap transition break-words
+                ${
+                  msg.sender === "me"
+                    ? "bg-purple-600 text-white ml-auto rounded-2xl rounded-br-none before:content-[''] before:absolute before:right-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-l-purple-600"
+                    : "bg-gray-200 text-black rounded-2xl rounded-bl-none before:content-[''] before:absolute before:left-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-r-gray-200"
+                }`}
             >
               {msg.text}
             </div>
@@ -109,20 +110,20 @@ const ChatPanel = () => {
               >
                 <ul className="text-sm">
                   {msg.sender === "me" && (
-                    <li
-                      className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 cursor-pointer"
-                      onClick={handleEdit}
-                    >
-                      <FaEdit /> Edit
-                    </li>
-                  )}
-                  {msg.sender === "me" && (
-                    <li
-                      className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 cursor-pointer text-red-500"
-                      onClick={handleDelete}
-                    >
-                      <FaTrash /> Delete
-                    </li>
+                    <>
+                      <li
+                        className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                        onClick={handleEdit}
+                      >
+                        <FaEdit /> Edit
+                      </li>
+                      <li
+                        className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 cursor-pointer text-red-500"
+                        onClick={handleDelete}
+                      >
+                        <FaTrash /> Delete
+                      </li>
+                    </>
                   )}
                   <li
                     className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 cursor-pointer"
@@ -144,7 +145,7 @@ const ChatPanel = () => {
         <div ref={messageEndRef} />
       </div>
 
-      {/* Chat Input */}
+      {/* Input */}
       <div className="px-3 py-2 border-t border-gray-200 bg-white sticky bottom-0 z-40">
         <div className="flex items-center gap-3">
           <button className="text-purple-500">
@@ -159,6 +160,9 @@ const ChatPanel = () => {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             className="flex-1 px-4 py-2 border border-gray-300 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+            inputMode="text"
+            autoComplete="off"
+            spellCheck={false}
           />
           <button
             onClick={handleSend}
