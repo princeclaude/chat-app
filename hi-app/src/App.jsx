@@ -9,12 +9,14 @@ function App() {
   return (
     <>
       <ProfileProvider>
-        <ToastContainer position="top-right" autoClose={1000}
+        <ToastContainer position="top-center" autoClose={1000}
           hideProgressBar={true}
           closeOnClick
           pauseOnHover={false}
           draggable={false}
           pauseOnFocusLoss={false}
+          icon={false}
+          
         />
         <Navigation />
       </ProfileProvider>

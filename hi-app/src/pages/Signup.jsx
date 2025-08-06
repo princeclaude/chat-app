@@ -36,7 +36,7 @@ export default function Signup() {
     try {
       const generatedPin = await signup(email, password);
       setPin(generatedPin);
-      // toast.success("PIN created successfully!");
+      
       setEmail("");
       setPassword("");
     } catch (err) {

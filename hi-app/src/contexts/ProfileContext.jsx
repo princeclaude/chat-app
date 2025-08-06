@@ -26,7 +26,7 @@ export const ProfileProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // 🔐 Generate 5-character alphanumeric PIN
+  
   const generatePin = () => {
     const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let pin = "";
@@ -36,24 +36,24 @@ export const ProfileProvider = ({ children }) => {
     return pin;
   };
 
-  // ✅ Signup
+  
   const signup = async (email, password) => {
     try {
-      // Check if user already exists
+      
       const existingUser = await getDoc(doc(db, "users", email));
       if (existingUser.exists()) {
         toast.error("Email already registered");
         return;
       }
 
-      // Generate PIN
+      
       const pin = generatePin();
 
-      // Create Auth account
+      
       const res = await createUserWithEmailAndPassword(auth, email, password);
       const createdUser = res.user;
 
-      // Save to Firestore
+      
       await setDoc(doc(db, "users", email), {
         email,
         pin,
