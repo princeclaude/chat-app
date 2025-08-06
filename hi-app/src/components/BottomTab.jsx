@@ -21,7 +21,7 @@ export default function BottomTab({ isDesktop = false }) {
     >
       {tabs.map((tab) => {
         const isActive = location.pathname === tab.path;
-        console.log(location.pathname)
+        
         return (
           <button
             key={tab.label}
