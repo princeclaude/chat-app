@@ -1,0 +1,189 @@
+// src/contexts/ProfileContext.jsx
+import { createContext, useContext, useEffect, useState } from "react";
+import {
+  getAuth,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+} from "firebase/auth";
+import {
+  doc,
+  getDoc,
+  setDoc,
+  deleteDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { auth, db } from "../firebase";
+import { toast } from "react-toastify";
+
+// Context setup
+const ProfileContext = createContext();
+export const useProfile = () => useContext(ProfileContext);
+
+export const ProfileProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  // 🔐 Generate 5-character alphanumeric PIN
+  const generatePin = () => {
+    const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let pin = "";
+    for (let i = 0; i < 5; i++) {
+      pin += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return pin;
+  };
+
+  // ✅ Signup
+  const signup = async (email, password) => {
+    try {
+      // Check if user already exists
+      const existingUser = await getDoc(doc(db, "users", email));
+      if (existingUser.exists()) {
+        toast.error("Email already registered");
+        return;
+      }
+
+      // Generate PIN
+      const pin = generatePin();
+
+      // Create Auth account
+      const res = await createUserWithEmailAndPassword(auth, email, password);
+      const createdUser = res.user;
+
+      // Save to Firestore
+      await setDoc(doc(db, "users", email), {
+        email,
+        pin,
+        verified: false,
+        createdAt: serverTimestamp(),
+      });
+
+      setUser(createdUser);
+      setProfile({ email, pin, verified: false });
+      toast.success("Signup successful");
+      return pin;
+    } catch (error) {
+      toast.error(error.message || "Signup failed");
+    }
+  };
+
+  
+  const signin = async (email, password) => {
+    try {
+      if (!email || !password) {
+        toast.error("Email and password are required");
+        return false;
+      }
+
+      
+      const userDocRef = doc(db, "users", email);
+      const profileDoc = await getDoc(userDocRef);
+
+      if (!profileDoc.exists()) {
+        toast.error("No account found with this email");
+        return false; 
+      }
+
+      
+      const res = await signInWithEmailAndPassword(auth, email, password);
+      const signedInUser = res.user;
+
+      
+      const profileData = profileDoc.data();
+
+      
+      setUser(signedInUser);
+      setProfile(profileData);
+
+      
+      await setDoc(doc(db, "currentUsers", email), {
+        ...profileData,
+        email,
+        lastActive: serverTimestamp(),
+      });
+
+      toast.success("Signed in successfully");
+      return true;
+    } catch (err) {
+      
+      if (err.code === "auth/wrong-password") {
+        toast.error("Incorrect password");
+      } else if (err.code === "auth/user-not-found") {
+        toast.error("No user found with these credentials");
+      } else {
+        toast.error(err.message || "Sign-in failed");
+      }
+
+      return false;
+    }
+  };
+  
+  const signout = async () => {
+    try {
+      if (auth.currentUser?.email) {
+        await deleteDoc(doc(db, "currentUsers", auth.currentUser.email));
+      }
+      await firebaseSignOut(auth);
+      setUser(null);
+      setProfile(null);
+      toast.success("Signed out");
+    } catch (err) {
+      toast.error("Failed to sign out");
+    }
+  };
+
+  // 🔄 Auto-login listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      setUser(firebaseUser);
+
+      if (firebaseUser?.email) {
+        const profileDoc = await getDoc(doc(db, "users", firebaseUser.email));
+        if (profileDoc.exists()) {
+          const profileData = profileDoc.data();
+          setProfile(profileData);
+          await setDoc(doc(db, "currentUsers", firebaseUser.email), {
+            ...profileData,
+            email: firebaseUser.email,
+            lastActive: serverTimestamp(),
+          });
+        }
+      } else {
+        setProfile(null);
+      }
+
+      setLoading(false);
+    });
+
+    // Remove currentUser on unload
+    const handleUnload = async () => {
+      if (auth.currentUser?.email) {
+        await deleteDoc(doc(db, "currentUsers", auth.currentUser.email));
+      }
+    };
+    window.addEventListener("beforeunload", handleUnload);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener("beforeunload", handleUnload);
+    };
+  }, []);
+
+  return (
+    <ProfileContext.Provider
+      value={{
+        user,
+        profile,
+        loading,
+        signup,
+        signin,
+        signout,
+      }}
+    >
+      {children}
+    </ProfileContext.Provider>
+  );
+};
