@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useProfile } from "../contexts/ProfileContext";
 import { useNavigate, Link } from "react-router-dom";
 import { FaUserPlus } from "react-icons/fa";
-import { toast } from "react-toastify";
+import { toast, ToastContainer } from "react-toastify";
 
 const Signin = () => {
   const { signin } = useProfile();
@@ -38,6 +38,7 @@ const Signin = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 pt-8 flex  flex-col items-center justify-start">
+      <ToastContainer/>
       
       <div className="w-full max-w-md mb-6">
         <h1 className="font-poppins text-purple-700 text-2xl font-bold tracking-tight">
