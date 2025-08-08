@@ -7,3 +7,26 @@
     @apply bg-white text-purple-700 shadow-md border border-purple-100 rounded-lg px-4 py-3 text-sm;
 }
 }
+
+@layer utilities {
+  .animate-slide-up {
+    animation: slide-up 0.3s ease-out;
+  }
+
+  @keyframes slide-up {
+    from {
+      transform: translateY(20px);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+}
+
+@layer components {
+  .custom-toast {
+    @apply bg-white text-purple-700 shadow-md border border-purple-100 rounded-lg px-4 py-3 text-sm;
+}
+}

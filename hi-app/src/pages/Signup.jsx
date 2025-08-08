@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { toast, ToastContainer } from "react-toastify";
+
 import "react-toastify/dist/ReactToastify.css";
 import { useNavigate, Link } from "react-router-dom";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import { useProfile } from "../contexts/ProfileContext";
+import { useToast } from "../contexts/ToastContext";
 
 export default function Signup() {
   const [email, setEmail] = useState("");
@@ -13,23 +14,24 @@ export default function Signup() {
   const [pin, setPin] = useState("");
   const navigate = useNavigate();
   const { signup } = useProfile();
+  const { showToast } = useToast();
 
   const handleSignup = async (e) => {
     e.preventDefault();
     setPin("");
 
     if (!email || !email.includes("@")) {
-      toast.warning("Please enter a valid email");
+      showToast("Please enter a valide email", "default",1000)
       return;
     }
 
     if (!password) {
-      toast.warning("Please enter password");
+      showToast("Please enter password", "default", 1000)
       return;
     }
 
     if (password.length > 8) {
-      toast.warning("Password must be 8 characters or less");
+      showToast("Password must be 8 characters or less", "default", 1000)
       return;
     }
 
@@ -41,15 +43,16 @@ export default function Signup() {
       setPassword("");
     } catch (err) {
       toast.error(err.message || "Something went wrong. Try again.");
+      showToast(`${err.message} || something went wrong, try again`, "default", 1000)
     }
   };
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(pin);
-      toast.info("PIN copied to clipboard");
+      showToast("Pin copied to clipboard", "default", 1000)
     } catch {
-      toast.error("Failed to copy PIN");
+      showToast("failed to copy pin", "default", 1000)
     }
   };
 
@@ -76,10 +79,10 @@ export default function Signup() {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-start bg-white p-4 pt-8">
-      <ToastContainer />
+      
       <div className="w-full max-w-md mb-6">
         <h1 className="font-poppins text-purple-700 text-2xl font-bold tracking-tight">
-          Hey!
+          Chirp!
         </h1>
       </div>
       <div className="bg-white w-full max-w-md shadow-xl rounded-lg p-6">

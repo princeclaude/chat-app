@@ -9,6 +9,7 @@ import {
   FaHeart,
   FaCopy,
   FaImage,
+  FaBullhorn,
 } from "react-icons/fa";
 import { useEffect, useRef, useState } from "react";
 
@@ -17,7 +18,7 @@ const ChatPanel = () => {
   const navigate = useNavigate();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([
-    { sender: "them", text: "Hey! 👋" },
+    { sender: "them", text: "Hey! 👋 why did you not come?" },
     { sender: "me", text: "Hello! How are you?" },
   ]);
   const [selectedMessageIndex, setSelectedMessageIndex] = useState(null);
@@ -78,7 +79,10 @@ const ChatPanel = () => {
           />
           <span className="font-medium text-black text-sm">{pin}</span>
         </div>
-        <FaPhoneAlt className="text-purple-600 text-xl" />
+        <div className="flex flex-row gap-5">
+          <FaBullhorn className="text-purple-600 text-xl"/>
+          <FaPhoneAlt className="text-purple-600 text-xl" />
+        </div>
       </div>
 
       {/* Messages */}
@@ -95,7 +99,7 @@ const ChatPanel = () => {
                 ${
                   msg.sender === "me"
                     ? "bg-purple-600 mt-8 text-white ml-auto rounded-2xl rounded-br-none before:content-[''] before:absolute before:right-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-l-purple-600"
-                    : "bg-purple-400 text-black rounded-2xl rounded-bl-none before:content-[''] before:absolute before:left-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-r-gray-200"
+                    : "bg-purple-400 text-white rounded-2xl rounded-bl-none before:content-[''] before:absolute before:left-[-6px] before:top-2 before:border-[6px] before:border-transparent before:border-r-gray-200"
                 }`}
             >
               {msg.text}

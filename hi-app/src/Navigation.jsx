@@ -6,6 +6,9 @@ import ProfileSetup from "./pages/ProfileSetup";
 import BottomTab from "./components/BottomTab";
 import Home from "./pages/Home";
 import ChatPanel from "./pages/ChatPanel";
+import Explore from "./pages/Explore";
+import Settings from "./pages/Settings";
+
 
 export default function Navigation() {
   return (
@@ -15,6 +18,8 @@ export default function Navigation() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/profilesetup" element={<ProfileSetup />} />
         <Route path="/home" element={<Home />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/explore" element={<Explore />} />
         <Route path="/chat/:pin" element={<ChatPanel />} />
         <Route path="/bottomtab" element={<BottomTab />} />
       </Routes>

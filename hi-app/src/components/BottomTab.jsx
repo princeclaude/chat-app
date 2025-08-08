@@ -1,4 +1,4 @@
-import { FaCommentDots, FaClock, FaCog, FaSearch } from "react-icons/fa";
+import { FaCommentDots, FaClock, FaCog, FaSearch, FaPhoneAlt,FaBullhorn } from "react-icons/fa";
 import { useLocation, useNavigate } from "react-router-dom";
 
 export default function BottomTab({ isDesktop = false }) {
@@ -6,7 +6,9 @@ export default function BottomTab({ isDesktop = false }) {
   const location = useLocation();
 
   const tabs = [
-    { icon: <FaCommentDots />, label: "Chats", path: "/home" },
+    { icon: <FaCommentDots />, label: "Chirps", path: "/home" },
+    { icon: <FaPhoneAlt />, label: "Chirp dials", path: "/callHistory" },
+    { icon: <FaBullhorn />, label: "Chirp buzz", path: "/buzzHistory" },
     { icon: <FaClock />, label: "Expect", path: "/expect" },
     { icon: <FaSearch />, label: "Explore", path: "/explore" },
     { icon: <FaCog />, label: "Settings", path: "/settings" },

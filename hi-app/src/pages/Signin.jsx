@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useProfile } from "../contexts/ProfileContext";
 import { useNavigate, Link } from "react-router-dom";
 import { FaUserPlus } from "react-icons/fa";
-import { toast, ToastContainer } from "react-toastify";
+// import { toast, ToastContainer } from "react-toastify";
+import { useToast } from "../contexts/ToastContext";
 
 const Signin = () => {
   const { signin } = useProfile();
@@ -11,11 +12,12 @@ const Signin = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const { showToast } = useToast();
 
   const handleSignin = async (e) => {
     e.preventDefault();
     if (!email || !password) {
-      toast.warning("Email and password are required");
+      showToast("Email and password are required", "default", 1000)
       return;
     }
 
@@ -25,12 +27,12 @@ const Signin = () => {
       const success = await signin(email, password);
 
       if (success) {
-        toast.success("Signed in successfully");
+        showToast("Signed in successfully!", "default", 1000)
         navigate("/home");
       }
     } catch (error) {
       console.log("error signing in", error);
-      toast.error("Invalid email or password");
+      showToast("Invalid email or password", "default", 1000)
     } finally {
       setLoading(false);
     }
@@ -38,11 +40,11 @@ const Signin = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 pt-8 flex  flex-col items-center justify-start">
-      <ToastContainer/>
+    
       
       <div className="w-full max-w-md mb-6">
         <h1 className="font-poppins text-purple-700 text-2xl font-bold tracking-tight">
-          Hey!
+          Chirp!
         </h1>
       </div>
 
