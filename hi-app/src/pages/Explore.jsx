@@ -4,6 +4,7 @@ import { collection, query, where, getDocs, doc, getDoc } from "firebase/firesto
 import { db } from "../firebase";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import BottomTab from "../components/BottomTab";
 
 export default function Explore() {
   const [pin, setPin] = useState("");
@@ -85,7 +86,8 @@ export default function Explore() {
       </motion.h1>
 
       {/* Search Bar */}
-      <div className="flex items-center gap-2 mb-4">
+      
+      <div className="flex items-center gap-2 mb-4 w-full">
         <input
           type="text"
           value={pin}
@@ -94,18 +96,18 @@ export default function Explore() {
           }
           maxLength={5}
           placeholder="Enter a Chirp"
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-purple-500"
+          className="flex-1 border border-gray-300 rounded-lg px-2 sm:px-3 py-2 text-sm sm:text-base focus:outline-none focus:border-purple-500"
         />
         <button
           onClick={handleSearch}
           disabled={loading || pin.length !== 5}
-          className="bg-purple-600 text-white px-3 py-2 rounded-lg disabled:opacity-50"
+          className="bg-purple-600 text-white px-2 sm:px-4 py-2 text-sm sm:text-base rounded-lg disabled:opacity-50"
         >
           Search
         </button>
         <button
           onClick={handleCancel}
-          className="bg-gray-200 text-black px-3 py-2 rounded-lg"
+          className="bg-gray-200 text-black px-2 sm:px-4 py-2 text-sm sm:text-base rounded-lg"
         >
           Cancel
         </button>
@@ -134,9 +136,11 @@ export default function Explore() {
               exit={{ opacity: 0, y: -15 }}
               whileHover={{ scale: 1.02 }}
               className="flex items-center gap-3 p-3 bg-gray-100 rounded-lg shadow-sm hover:bg-gray-200 transition cursor-pointer"
-              onClick={() => navigate(`/chat/${encodeURIComponent(userResult.id)}`,
-                { state: { otherUser: userResult } }
-              )}
+              onClick={() =>
+                navigate(`/chat/${encodeURIComponent(userResult.id)}`, {
+                  state: { otherUser: userResult },
+                })
+              }
             >
               <img
                 src={userResult.profilePic || "/default-avatar.png"}
@@ -165,6 +169,10 @@ export default function Explore() {
           )}
         </AnimatePresence>
       </div>
- </div>
-);
+      {/* Bottom Tab */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
+        <BottomTab />
+      </div>
+    </div>
+  );
 }
