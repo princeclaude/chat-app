@@ -7,12 +7,15 @@ import { ToastProvider } from "./contexts/ToastContext";
 import { SettingsProvider } from "./contexts/SettingsContext";
 
 
+
+
 function App() {
   return (
     <>
       <ProfileProvider>
         <SettingsProvider>
           <ToastProvider>
+          
             <Navigation />
           </ToastProvider>
         </SettingsProvider>

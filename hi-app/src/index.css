@@ -30,3 +30,32 @@
     @apply bg-white text-purple-700 shadow-md border border-purple-100 rounded-lg px-4 py-3 text-sm;
 }
 }
+
+@keyframes zoomIn {
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-zoomIn {
+  animation: zoomIn 0.25s ease-out forwards;
+}
+
+@keyframes zoomOut {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+}
+.animate-zoomOut {
+  animation: zoomOut 0.25s ease-out forwards;
+}

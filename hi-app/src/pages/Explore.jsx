@@ -134,7 +134,9 @@ export default function Explore() {
               exit={{ opacity: 0, y: -15 }}
               whileHover={{ scale: 1.02 }}
               className="flex items-center gap-3 p-3 bg-gray-100 rounded-lg shadow-sm hover:bg-gray-200 transition cursor-pointer"
-              onClick={() => navigate(`/chat/${userResult.id}`)}
+              onClick={() => navigate(`/chat/${encodeURIComponent(userResult.id)}`,
+                { state: { otherUser: userResult } }
+              )}
             >
               <img
                 src={userResult.profilePic || "/default-avatar.png"}
