@@ -4,6 +4,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { FaUserPlus } from "react-icons/fa";
 // import { toast, ToastContainer } from "react-toastify";
 import { useToast } from "../contexts/ToastContext";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 
 const Signin = () => {
   const { signin } = useProfile();
@@ -13,6 +14,7 @@ const Signin = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleSignin = async (e) => {
     e.preventDefault();
@@ -40,8 +42,6 @@ const Signin = () => {
 
   return (
     <div className="min-h-screen bg-gray-100 p-4 pt-8 flex  flex-col items-center justify-start">
-    
-      
       <div className="w-full max-w-md mb-6">
         <h1 className="font-poppins text-purple-700 text-2xl font-bold tracking-tight">
           Chirp!
@@ -67,14 +67,24 @@ const Signin = () => {
             autoComplete="new-email"
           />
 
-          <input
-            type="password"
-            placeholder="Password"
-            className="w-full p-3 mb-4 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="new-password"
-          />
+          <div className="relative mb-4">
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Enter password"
+              maxLength={8}
+              className="w-full p-3 pr-10 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-purple-500"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              className="absolute right-3 top-3 text-gray-500"
+            >
+              {showPassword ? <FaEyeSlash /> : <FaEye />}
+            </button>
+          </div>
 
           <div className="flex items-center justify-between mb-4">
             <Link to="/" className="text-sm text-purple-500 hover:underline">

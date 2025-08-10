@@ -23,6 +23,7 @@ import {
   FaPaperPlane,
   FaImage,
   FaBullhorn,
+  FaUser,
 } from "react-icons/fa";
 import { BsCheck, BsCheckAll } from "react-icons/bs";
 import dayjs from "dayjs";
@@ -428,7 +429,7 @@ export default function ChatPanel() {
                 />
               ) : (
                 <div className="flex items-center justify-center w-full h-full text-gray-400">
-                  👤
+                  <FaUser className="text-purple-500 "/>
                 </div>
               )}
             </button>
@@ -444,7 +445,7 @@ export default function ChatPanel() {
                     : "text-gray-600 font-bold"
                 }`}
               >
-                {isOnline ? "Online" : "Offline"}
+                {isOnline ? "Active" : "Inactive"}
               </div>
             </div>
           </div>
@@ -553,11 +554,11 @@ export default function ChatPanel() {
               ✕
             </button>
             <div className="w-full h-full flex items-center justify-center">
-             
+              
               <img
                 src={otherUser.profilePic}
                 alt="Profile zoom"
-                className="max-w-full max-h-[80vh] rounded-full mt-4 object-cover border-4 border-purple-500 shadow-lg transform transition-transform duration-400 ease-out scale-100 animate-zoom-in"
+                className="w-72 h-72 rounded-full mt-4 object-cover border-4 border-purple-500 shadow-lg transform transition-transform duration-400 ease-out scale-100 animate-zoom-in"
                 style={{
                   animation: "zoomIn 320ms cubic-bezier(.2,.9,.3,1) both",
                 }}

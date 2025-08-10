@@ -4,15 +4,21 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   onSnapshot,
   orderBy,
   query,
+  deleteDoc,
+  writeBatch,
+  limit,
+  startAfter,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { FiMoreVertical, FiRefreshCw, FiSearch, FiX } from "react-icons/fi";
+import { FaUser } from "react-icons/fa";
 import BottomTab from "../components/BottomTab";
 import { useProfile } from "../contexts/ProfileContext";
 
@@ -26,8 +32,14 @@ export default function ChatList() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [isClosing, setIsClosing] = useState(false);
+  const [swipedId, setSwipedId] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const navigate = useNavigate();
   const userCacheRef = useRef(new Map()); // cache for user docs to avoid refetch
+
+  // swipe handling refs
+  const pointerStartXRef = useRef(null);
+  const activePointerIdRef = useRef(null);
 
   const closeModal = () => {
     setIsClosing(true);
@@ -48,12 +60,8 @@ export default function ChatList() {
     const q = query(collection(db, "conversations"), orderBy("updatedAt", "desc"));
     const unsub = onSnapshot(q, (snapshot) => {
       const convos = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      // filter to conversations involving current user if profile is available
       const filtered = profile?.email
-        ? convos.filter(
-            (c) =>
-              !c.participants || c.participants.includes(profile.email)
-          )
+        ? convos.filter((c) => !c.participants || c.participants.includes(profile.email))
         : convos;
       setConversations(filtered);
     });
@@ -67,56 +75,40 @@ export default function ChatList() {
       return;
     }
 
-    // if we don't have profile.email yet, can't resolve the "other" participant
     const myEmail = profile?.email;
     if (!myEmail) {
-      // just show raw conversation list until profile loads
       setEnriched(conversations.map((c) => ({ ...c })));
       return;
     }
 
     (async () => {
       try {
-        // gather unique other user emails that we need to fetch
         const toFetch = new Set();
         const convosToResolve = conversations.map((c) => {
           let otherEmail = null;
 
-          // Prefer participants array if present
           if (Array.isArray(c.participants) && c.participants.length > 0) {
-            // find first participant that is not the current user
             otherEmail = c.participants.find((p) => p !== myEmail);
-            // if participants only contains the current user (odd) fallback to null
           }
 
-          // If participants didn't give us the other email, try to infer from conversation fields:
-          // sometimes the convo doc may include otherEmail/otherUser fields
           if (!otherEmail) {
             if (c.otherUserEmail) otherEmail = c.otherUserEmail;
             else if (c.otherUserId) otherEmail = c.otherUserId;
-            // else leave null (we'll display UNKNOWN)
           }
 
-          if (otherEmail) {
-            // Only queue fetch if not cached yet
-            if (!userCacheRef.current.has(otherEmail)) toFetch.add(otherEmail);
-          }
-
+          if (otherEmail && !userCacheRef.current.has(otherEmail)) toFetch.add(otherEmail);
           return { ...c, otherEmail };
         });
 
-        // fetch all missing user docs in parallel
         if (toFetch.size > 0) {
           const promises = Array.from(toFetch).map(async (email) => {
             try {
-              // user documents are stored under their email as doc id per your design
               const userDocRef = doc(db, "users", email);
               const snap = await getDoc(userDocRef);
               if (snap.exists()) {
                 userCacheRef.current.set(email, snap.data());
                 return { email, data: snap.data() };
               } else {
-                // store a fallback to avoid refetch attempts
                 userCacheRef.current.set(email, null);
                 return { email, data: null };
               }
@@ -126,11 +118,9 @@ export default function ChatList() {
               return { email, data: null };
             }
           });
-
           await Promise.all(promises);
         }
 
-        // now merge cached user data into conversations
         const merged = convosToResolve.map((c) => {
           const other = c.otherEmail ? userCacheRef.current.get(c.otherEmail) : null;
           return {
@@ -144,7 +134,6 @@ export default function ChatList() {
         setEnriched(merged);
       } catch (err) {
         console.error("Error enriching conversations:", err);
-        // fallback to raw list
         setEnriched(conversations.map((c) => ({ ...c })));
       }
     })();
@@ -176,6 +165,72 @@ export default function ChatList() {
     }
   };
 
+  // delete conversation including messages subcollection in paged batches
+  const deleteConversationWithMessages = async (conversationId) => {
+    // Optimistic UI removal
+    setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+    setEnriched((prev) => prev.filter((c) => c.id !== conversationId));
+    setSwipedId((id) => (id === conversationId ? null : id));
+    setConfirmDeleteId(null);
+
+    try {
+      const messagesColRef = collection(db, "conversations", conversationId, "messages");
+      let last = null;
+      const pageSize = 500;
+
+      while (true) {
+        const qArgs = [messagesColRef, orderBy("_name_"), limit(pageSize)];
+        if (last) qArgs.push(startAfter(last));
+        const q = query(...qArgs);
+        const snap = await getDocs(q);
+        if (snap.empty) break;
+
+        const batch = writeBatch(db);
+        snap.docs.forEach((d) => {
+          batch.delete(doc(db, "conversations", conversationId, "messages", d.id));
+        });
+        await batch.commit();
+        last = snap.docs[snap.docs.length - 1];
+        // if fetched less than page size, done
+        if (snap.docs.length < pageSize) break;
+      }
+
+      // finally delete the conversation doc
+      await deleteDoc(doc(db, "conversations", conversationId));
+    } catch (err) {
+      console.error("Failed to delete conversation and messages:", err);
+      // optional: you could re-fetch list to ensure UI is in sync
+    }
+  };
+
+  // Pointer/touch handlers for swipe detection
+  const handlePointerDown = (e, id) => {
+    // support both pointer and touch events gracefully
+    const clientX = e.clientX ?? (e.touches?.[0]?.clientX ?? null);
+    pointerStartXRef.current = clientX;
+    activePointerIdRef.current = id;
+  };
+
+  const handlePointerMove = (e, id) => {
+    if (activePointerIdRef.current !== id) return;
+    const startX = pointerStartXRef.current;
+    if (startX == null) return;
+    const currentX = e.clientX ?? (e.touches?.[0]?.clientX ?? null);
+    if (currentX == null) return;
+    const delta = currentX - startX;
+    // left swipe threshold
+    if (delta < -50) {
+      setSwipedId(id);
+    } else if (delta > 30) {
+      setSwipedId(null);
+    }
+  };
+
+  const handlePointerUp = () => {
+    pointerStartXRef.current = null;
+    activePointerIdRef.current = null;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen bg-white">
@@ -193,15 +248,19 @@ export default function ChatList() {
             className="p-[2px] rounded-full border-2 border-purple-500 cursor-pointer"
             onClick={() => setShowProfileModal(true)}
           >
-            <img
-              src={currentUser.profilePic}
-              alt="Me"
-              className="w-10 h-10 rounded-full object-cover border border-white"
-            />
+            {currentUser.profilePic ? (
+              <img
+                src={currentUser.profilePic}
+                alt="Me"
+                className="w-10 h-10 rounded-full object-cover border border-white"
+              />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center border border-white">
+                <FaUser className="text-purple-600" />
+              </div>
+            )}
           </div>
-          <span className="font-extrabold text-purple-700">
-            {currentUser.pin}
-          </span>
+          <span className="font-extrabold text-purple-700">{currentUser.pin}</span>
         </div>
         <div className="flex items-center gap-4 text-gray-600">
           <FiRefreshCw
@@ -257,9 +316,7 @@ export default function ChatList() {
       )}
 
       {/* Title */}
-      <h1 className="text-left ml-4 text-purple-600 font-extrabold text-2xl my-4">
-        Chirps
-      </h1>
+      <h1 className="text-left ml-4 text-purple-600 font-extrabold text-2xl my-4">Chirps</h1>
 
       {/* Search bar */}
       <div className="px-4 mb-4">
@@ -286,35 +343,73 @@ export default function ChatList() {
                   .includes(searchTerm.toLowerCase())
           )
           .map((chat) => {
-            const otherPic = chat.otherUserPic || "/default-avatar.png";
+            const otherPic = chat.otherUserPic || null; // null triggers FaUser fallback
             const otherPin = chat.otherUserPin || chat.otherUserEmail || "UNKNOWN";
-
-            // When navigating, pass the other user's email as the route param.
-            // We'll URI-encode it to be safe for routes (so dots/@ don't break)
             const targetParam = encodeURIComponent(chat.otherUserEmail || chat.otherUserId || chat.id);
 
             return (
               <div
                 key={chat.id}
-                className="flex items-center justify-between p-3 rounded-lg shadow-md bg-gray-50 hover:bg-purple-50 transition-all duration-300 cursor-pointer"
-                onClick={() => navigate(`/chat/${targetParam}`, { state: { otherUser: { email: chat.otherUserEmail, pin: chat.otherUserPin, profilePic: chat.otherUserPic } } })}
+                className="relative group"
+                onPointerDown={(e) => handlePointerDown(e, chat.id)}
+                onPointerMove={(e) => handlePointerMove(e, chat.id)}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
               >
-                <div className="flex items-center">
-                  <img
-                    src={otherPic}
-                    alt="Profile"
-                    className="w-12 h-12 rounded-full border border-purple-300 object-cover"
-                  />
-                  <div className="ml-3">
-                    <p className="font-semibold text-black">{otherPin}</p>
-                    <p className="text-sm text-gray-500 truncate max-w-[200px]">
-                      {chat.lastMessage || ""}
-                    </p>
+                {/* delete button - reveals when swiped or hover */}
+                <button
+                  aria-label="Delete conversation"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    setConfirmDeleteId(chat.id);
+                  }}
+                  className={`absolute right-3 top-1/2 transform -translate-y-1/2 z-20 shadow text-white p-2 rounded-full transition-opacity duration-200 ${
+                    swipedId === chat.id ? "opacity-100 bg-red-600" : "opacity-0 group-hover:opacity-100 bg-red-600"
+                  }`}
+                >
+                  <FiX />
+                </button>
+
+                {/* clickable row; translates left when swiped */}
+                <div
+                  onClick={() =>
+                    navigate(`/chat/${targetParam}`, {
+                      state: {
+                        otherUser: {
+                          email: chat.otherUserEmail,
+                          pin: chat.otherUserPin,
+                          profilePic: chat.otherUserPic,
+                        },
+                      },
+                    })
+                  }
+                  className="flex items-center justify-between p-3 rounded-lg shadow-md bg-gray-50 hover:bg-purple-50 transition-all duration-300 cursor-pointer"
+                  style={{
+                    transform: swipedId === chat.id ? "translateX(-84px)" : "translateX(0)",
+                    transition: "transform 180ms ease",
+                  }}
+                >
+                  <div className="flex items-center">
+                    {otherPic ? (
+                      <img
+                        src={otherPic}
+                        alt="Profile"
+                        className="w-12 h-12 rounded-full border border-purple-300 object-cover"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center border border-purple-300">
+                        <FaUser className="text-purple-600" />
+                      </div>
+                    )}
+                    <div className="ml-3">
+                      <p className="font-semibold text-black">{otherPin}</p>
+                      <p className="text-sm text-gray-500 truncate max-w-[200px]">
+                        {chat.lastMessage || ""}
+                      </p>
+                    </div>
                   </div>
+                  <span className="text-xs text-gray-400">{formatTime(chat.lastMessageTime)}</span>
                 </div>
-                <span className="text-xs text-gray-400">
-                  {formatTime(chat.lastMessageTime)}
-                </span>
               </div>
             );
           })}
@@ -324,6 +419,52 @@ export default function ChatList() {
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
         <BottomTab />
       </div>
+
+      {/* Confirm delete modal */}
+      {confirmDeleteId && (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/50"
+          onClick={() => setConfirmDeleteId(null)}
+        >
+          <div
+            className="bg-white rounded-lg p-5 w-[90%] max-w-md shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-2">Delete conversation?</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              This will permanently delete the conversation and all messages. This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700"
+                onClick={() => setConfirmDeleteId(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 rounded-lg bg-red-600 text-white"
+                onClick={() => deleteConversationWithMessages(confirmDeleteId)}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* small CSS animations if you want to tune them */}
+      <style>{`
+        @keyframes zoomIn {
+          0% { transform: scale(0.9); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes zoomOut {
+          0% { transform: scale(1); opacity: 1; }
+          100% { transform: scale(0.9); opacity: 0; }
+        }
+        .animate-zoomIn { animation: zoomIn 200ms ease both; }
+        .animate-zoomOut { animation: zoomOut 180ms ease both; }
+      `}</style>
  </div>
 );
 }

@@ -5,6 +5,7 @@ import { db } from "../firebase";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import BottomTab from "../components/BottomTab";
+import { FaUser } from "react-icons/fa";
 
 export default function Explore() {
   const [pin, setPin] = useState("");
@@ -191,11 +192,19 @@ export default function Explore() {
                 })
               }
             >
-              <img
-                src={userResult.profilePic || "/default-avatar.png"}
-                alt="profile"
-                className="w-12 h-12 rounded-full object-cover"
-              />
+              {/* fallback to FaUser when no profilePic */}
+              {userResult.profilePic ? (
+                <img
+                  src={userResult.profilePic}
+                  alt="profile"
+                  className="w-12 h-12 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-gray-100 flex border-2 border-purple-700 items-center justify-center">
+                  <FaUser className="text-purple-500" />
+                </div>
+              )}
+
               <div>
                 <p className="font-bold text-purple-700">{userResult.pin}</p>
                 <p className="text-sm text-gray-500">
