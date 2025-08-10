@@ -46,9 +46,13 @@ export default function ChatPanel() {
   const [loading, setLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
 
+  // modal state for profile image zoom
+  const [showPicModal, setShowPicModal] = useState(false);
+
   const endRef = useRef(null);
   const sendSoundRef = useRef(new Audio("/sounds/send.mp3"));
   const receiveSoundRef = useRef(new Audio("/sounds/receive.mp3"));
+  const presenceHeartbeatRef = useRef(null);
 
   const sanitizeKey = (s = "") =>
     String(s).toLowerCase().replace(/[^a-z0-9]/g, "_");
@@ -78,6 +82,79 @@ export default function ChatPanel() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
+
+  // presence helpers
+  const setMeOnline = async () => {
+    if (!currentEmail) return;
+    try {
+      // keep a small "online" flag plus lastActive server timestamp
+      await setDoc(
+        doc(db, "currentUsers", currentEmail),
+        { online: true, lastActive: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (err) {
+      console.warn("setMeOnline error", err);
+    }
+  };
+  const setMeOffline = async () => {
+    if (!currentEmail) return;
+    try {
+      // mark offline and update lastActive to server time so others can use recency check
+      await setDoc(
+        doc(db, "currentUsers", currentEmail),
+        { online: false, lastActive: serverTimestamp() },
+        { merge: true }
+      );
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  // Manage current user's presence using visibility/focus/unload
+  useEffect(() => {
+    if (!currentEmail) return;
+
+    // set online immediately
+    setMeOnline();
+
+    // heartbeat to update lastActive (keeps doc fresh)
+    presenceHeartbeatRef.current = setInterval(() => {
+      setMeOnline();
+    }, 30_000); // every 30s
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        setMeOnline();
+      } else {
+        // when tab hidden => mark offline (best effort)
+        setMeOffline();
+      }
+    };
+
+    const onFocus = () => setMeOnline();
+    const onBlur = () => setMeOffline();
+    const onBeforeUnload = () => {
+      
+      setMeOffline();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", onBlur);
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    return () => {
+      clearInterval(presenceHeartbeatRef.current);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", onBlur);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      // cleanup: attempt to set offline on unmount
+      setMeOffline();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentEmail]);
 
   useEffect(() => {
     if (!otherKey || !currentEmail) {
@@ -159,10 +236,42 @@ export default function ChatPanel() {
           }
         );
 
-        // Presence listener
+        // Presence listener for other user:
+        // We interpret the other user's doc fields: { online: boolean, lastActive: Timestamp }
+        // To avoid "stale online" we also consider lastActive recency (threshold)
+        const ONLINE_THRESHOLD_MS = 90_000; // 90 seconds
+
         unsubPresence = onSnapshot(doc(db, "currentUsers", otherKey), (snap) => {
           if (!mounted) return;
-          setIsOnline(snap.exists());
+
+          if (!snap.exists()) {
+            setIsOnline(false);
+            return;
+          }
+
+          const data = snap.data() || {};
+          let onlineFlag = !!data.online;
+
+          // compute recency from lastActive (if available)
+          const la = data.lastActive;
+          let lastMs = 0;
+          if (la) {
+            if (typeof la.toDate === "function") {
+              lastMs = la.toDate().getTime();
+            } else if (la.seconds) {
+              lastMs = la.seconds * 1000;
+            } else {
+              const parsed = new Date(la);
+              if (!isNaN(parsed)) lastMs = parsed.getTime();
+            }
+          }
+
+          const now = Date.now();
+          const recent = lastMs && now - lastMs <= ONLINE_THRESHOLD_MS;
+
+          // final online determination: either online flag true OR lastActive is recent
+          const computedOnline = onlineFlag || recent;
+          setIsOnline(Boolean(computedOnline));
         });
 
         // Typing indicator listener
@@ -191,6 +300,7 @@ export default function ChatPanel() {
       unsubPresence && unsubPresence();
       unsubTyping && unsubTyping();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [otherKey, currentEmail, passedOtherUser, messages.length]);
 
   // Auto-update "delivered" → "seen" when chat is open
@@ -271,6 +381,22 @@ export default function ChatPanel() {
     }
   };
 
+  // profile pic modal handlers
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape" && showPicModal) setShowPicModal(false);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [showPicModal]);
+
+  const onProfileClick = () => {
+    if (!otherUser?.profilePic) return;
+    setShowPicModal(true);
+  };
+
+  const closePicModal = () => setShowPicModal(false);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
@@ -288,19 +414,25 @@ export default function ChatPanel() {
             <button onClick={() => navigate(-1)} className="pr-1">
               <FaArrowLeft className="text-lg text-purple-700" />
             </button>
-            <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 border border-white">
+
+            <button
+              onClick={onProfileClick}
+              aria-label="Open profile"
+              className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 border border-white p-0"
+            >
               {otherUser?.profilePic ? (
                 <img
                   src={otherUser.profilePic}
                   alt="other"
-                  className="w-full h-full object-cover"
+                  className="p-[2px] rounded-full border-2 border-purple-500 cursor-pointer"
                 />
               ) : (
                 <div className="flex items-center justify-center w-full h-full text-gray-400">
                   👤
                 </div>
               )}
-            </div>
+            </button>
+
             <div>
               <div className="text-sm font-medium">
                 {otherUser?.pin || otherUser?.email}
@@ -316,12 +448,14 @@ export default function ChatPanel() {
               </div>
             </div>
           </div>
+
           <div className="flex items-center gap-4 text-purple-600">
             <FaBullhorn className="text-xl" />
             <FaPhoneAlt className="text-xl" />
           </div>
         </div>
       </div>
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && (
@@ -361,26 +495,24 @@ export default function ChatPanel() {
         {/* Typing indicator */}
         {isTyping && (
           <div className="flex justify-start">
-            {/* Typing indicator */}
-            {isTyping && (
-              <div className="flex justify-start">
-                <div className="flex items-center gap-1 px-3 py-2 bg-purple-500 text-white rounded-2xl rounded-bl-none shadow-sm">
-                  <span className="dot" />
-                  <span className="dot" />
-                  <span className="dot" />
-                </div>
+            <div className="flex justify-start">
+              <div className="flex items-center gap-1 px-3 py-2 bg-purple-500 text-white rounded-2xl rounded-bl-none shadow-sm">
+                <span className="dot" />
+                <span className="dot" />
+                <span className="dot" />
               </div>
-            )}
+            </div>
           </div>
         )}
 
         <div ref={endRef} />
       </div>
+
       {/* Input */}
       <div className="sticky bottom-0 bg-white border-t px-3 py-2">
         <div className="flex items-center gap-3">
-          <FaPaperclip className="text-xl text-gray-500" />
-          <FaImage className="text-xl text-gray-500" />
+          <FaPaperclip className="text-xl text-purple-600" />
+          <FaImage className="text-xl text-purple-600" />
           <input
             type="text"
             placeholder="Type a message"
@@ -402,6 +534,39 @@ export default function ChatPanel() {
           </button>
         </div>
       </div>
+
+      {/* Profile image modal */}
+      {showPicModal && otherUser?.profilePic && (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/60"
+          onClick={closePicModal}
+        >
+          <div
+            className="max-w-[92%] max-h-[86%] p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              aria-label="Close"
+              onClick={closePicModal}
+              className="absolute top-6 right-6 z-70 text-white text-2xl"
+            >
+              ✕
+            </button>
+            <div className="w-full h-full flex items-center justify-center">
+             
+              <img
+                src={otherUser.profilePic}
+                alt="Profile zoom"
+                className="max-w-full max-h-[80vh] rounded-full mt-4 object-cover border-4 border-purple-500 shadow-lg transform transition-transform duration-400 ease-out scale-100 animate-zoom-in"
+                style={{
+                  animation: "zoomIn 320ms cubic-bezier(.2,.9,.3,1) both",
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes pop {
           0% { transform: scale(0.94); opacity: 0; }
@@ -413,28 +578,27 @@ export default function ChatPanel() {
         }
 
         @keyframes blink {
-  0%, 80%, 100% { transform: scale(0.8); opacity: 0.4; }
-  40% { transform: scale(1); opacity: 1; }
-}
+          0%, 80%, 100% { transform: scale(0.8); opacity: 0.4; }
+          40% { transform: scale(1); opacity: 1; }
+        }
+        .dot {
+          width: 6px;
+          height: 6px;
+          background-color: white;
+          border-radius: 50%;
+          display: inline-block;
+          animation: blink 1.4s infinite both;
+        }
+        .dot:nth-child(1) { animation-delay: 0s; }
+        .dot:nth-child(2) { animation-delay: 0.2s; }
+        .dot:nth-child(3) { animation-delay: 0.4s; }
 
-.dot {
-  width: 6px;
-  height: 6px;
-  background-color: white;
-  border-radius: 50%;
-  display: inline-block;
-  animation: blink 1.4s infinite both;
-}
-
-.dot:nth-child(1) {
-  animation-delay: 0s;
-}
-.dot:nth-child(2) {
-  animation-delay: 0.2s;
-}
-.dot:nth-child(3) {
-  animation-delay: 0.4s;
-}
+        /* zoom-in animation used for modal image */
+        @keyframes zoomIn {
+          0% { transform: scale(0.88); opacity: 0; }
+          60% { transform: scale(1.02); opacity: 1; }
+          100% { transform: scale(1); opacity: 1; }
+        }
       `}</style>
     </div>
   );

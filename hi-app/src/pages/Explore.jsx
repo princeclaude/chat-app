@@ -1,5 +1,5 @@
 // src/pages/Explore.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,6 +12,40 @@ export default function Explore() {
   const [loading, setLoading] = useState(false);
   const [searchTriggered, setSearchTriggered] = useState(false);
   const navigate = useNavigate();
+
+  // store original viewport meta so we can restore it
+  const originalViewportRef = useRef(null);
+  const metaRef = useRef(null);
+
+  useEffect(() => {
+    // capture the viewport meta tag once on mount
+    metaRef.current = document.querySelector('meta[name="viewport"]');
+    if (metaRef.current) {
+      originalViewportRef.current = metaRef.current.getAttribute("content");
+    }
+  }, []);
+
+  const disableZoomTemporarily = () => {
+    const meta = metaRef.current;
+    if (!meta) return;
+    // store original if not already stored
+    if (originalViewportRef.current === null) {
+      originalViewportRef.current = meta.getAttribute("content");
+    }
+    // set a viewport that disables zooming while typing/focus
+    meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0");
+  };
+
+  const restoreZoom = () => {
+    const meta = metaRef.current;
+    if (!meta) return;
+    const orig = originalViewportRef.current;
+    if (orig !== null && orig !== undefined) {
+      meta.setAttribute("content", orig);
+    } else {
+      meta.setAttribute("content", "width=device-width, initial-scale=1");
+    }
+  };
 
   const formatLastActive = (value) => {
     if (!value) return "N/A";
@@ -60,6 +94,8 @@ export default function Explore() {
           ...baseUserData,
           ...presenceData, // this will include lastActive if present
         });
+      } else {
+        setUserResult(null);
       }
     } catch (err) {
       console.error("Search error:", err);
@@ -72,10 +108,12 @@ export default function Explore() {
     setPin("");
     setUserResult(null);
     setSearchTriggered(false);
+    // restore viewport if user cancels while input was focused
+    restoreZoom();
   };
 
   return (
-    <div className="flex flex-col h-screen bg-white text-black p-4">
+    <div className="flex flex-col h-screen bg-white text-black p-4" style={{ WebkitTextSizeAdjust: "100%", MsTextSizeAdjust: "100%" }}>
       {/* Page Title */}
       <motion.h1
         initial={{ opacity: 0, y: -10 }}
@@ -86,31 +124,42 @@ export default function Explore() {
       </motion.h1>
 
       {/* Search Bar */}
-      
-      <div className="flex items-center gap-2 mb-4 w-full">
-        <input
-          type="text"
-          value={pin}
-          onChange={(e) =>
-            setPin(e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase())
-          }
-          maxLength={5}
-          placeholder="Enter a Chirp"
-          className="flex-1 border border-gray-300 rounded-lg px-2 sm:px-3 py-2 text-sm sm:text-base focus:outline-none focus:border-purple-500"
-        />
-        <button
-          onClick={handleSearch}
-          disabled={loading || pin.length !== 5}
-          className="bg-purple-600 text-white px-2 sm:px-4 py-2 text-sm sm:text-base rounded-lg disabled:opacity-50"
-        >
-          Search
-        </button>
-        <button
-          onClick={handleCancel}
-          className="bg-gray-200 text-black px-2 sm:px-4 py-2 text-sm sm:text-base rounded-lg"
-        >
-          Cancel
-        </button>
+      {/* sticky so it stays visually in place when mobile keyboard opens */}
+      <div className="sticky top-16 z-40 mb-4 bg-white">
+        <div className="flex items-center gap-2 w-full">
+          <input
+            type="text"
+            value={pin}
+            onChange={(e) =>
+              setPin(e.target.value.replace(/[^a-zA-Z0-9]/g, "").toUpperCase())
+            }
+            maxLength={5}
+            placeholder="Enter a Chirp"
+            className="flex-1 border border-gray-300 rounded-lg px-2 sm:px-3 py-2 text-sm sm:text-base focus:outline-none focus:border-purple-500"
+            // ensure font-size >= 16px to avoid iOS auto-zoom
+            style={{ fontSize: 16, lineHeight: "20px" }}
+            onFocus={() => {
+              disableZoomTemporarily();
+            }}
+            onBlur={() => {
+              // restore after small delay so taps on nearby buttons still work
+              setTimeout(() => restoreZoom(), 100);
+            }}
+          />
+          <button
+            onClick={handleSearch}
+            disabled={loading || pin.length !== 5}
+            className="bg-purple-600 text-white px-2 sm:px-4 py-2 text-sm sm:text-base rounded-lg disabled:opacity-50"
+          >
+            Search
+          </button>
+          <button
+            onClick={handleCancel}
+            className="bg-gray-200 text-black px-2 sm:px-4 py-2 text-sm sm:text-base rounded-lg"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
 
       {/* Results Section */}
@@ -169,10 +218,11 @@ export default function Explore() {
           )}
         </AnimatePresence>
       </div>
+
       {/* Bottom Tab */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
         <BottomTab />
       </div>
-    </div>
-  );
+ </div>
+);
 }

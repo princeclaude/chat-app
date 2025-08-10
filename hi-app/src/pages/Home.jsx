@@ -267,7 +267,7 @@ export default function ChatList() {
           <FiSearch className="text-gray-500 mr-2" />
           <input
             type="text"
-            placeholder="Search chats..."
+            placeholder="Search chirps..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="bg-transparent outline-none flex-1 text-gray-700 placeholder-gray-400"
