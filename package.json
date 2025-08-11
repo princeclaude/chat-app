@@ -1,5 +1,6 @@
 {
   "dependencies": {
-    "@uploadcare/upload-client": "^6.17.0"
+    "@uploadcare/upload-client": "^6.17.0",
+    "firebase": "^12.1.0"
   }
 }
