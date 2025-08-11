@@ -24,9 +24,14 @@ import {
   FaImage,
   FaBullhorn,
   FaUser,
+  FaWhatsapp,
+  FaReply, 
+  FaTrash, FaCopy,FaEdit, FaShare
 } from "react-icons/fa";
 import { BsCheck, BsCheckAll } from "react-icons/bs";
 import dayjs from "dayjs";
+import { useToast } from "../contexts/ToastContext";
+
 
 export default function ChatPanel() {
   const { id: rawParamId } = useParams();
@@ -46,14 +51,108 @@ export default function ChatPanel() {
   const [convoId, setConvoId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
+  const { showToast } = useToast();
 
-  // modal state for profile image zoom
+  // modals
   const [showPicModal, setShowPicModal] = useState(false);
+  const [imageModalUrl, setImageModalUrl] = useState(null);
+
+  // uploading state
+  const [isUploading, setIsUploading] = useState(false);
 
   const endRef = useRef(null);
   const sendSoundRef = useRef(new Audio("/sounds/send.mp3"));
   const receiveSoundRef = useRef(new Audio("/sounds/receive.mp3"));
   const presenceHeartbeatRef = useRef(null);
+
+  const [actionModal, setActionModal] = useState({
+    show: false,
+    x: 0,
+    y: 0,
+    message: null,
+  });
+
+  // handle bubble click
+  const handleBubbleClick = (e, message) => {
+    e.stopPropagation();
+
+    // If modal is already showing for this message, hide it
+    if (actionModal.show && actionModal.message?.id === message.id) {
+      setActionModal((prev) => ({ ...prev, show: false }));
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const modalWidth = 150; // approximate width of modal
+    const modalHeight = 300; // approximate height of modal
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+
+    let x, y;
+
+    // Horizontal positioning
+    if (rect.right + modalWidth + 8 > screenWidth) {
+      x = rect.left - modalWidth - 8; // place left
+    } else {
+      x = rect.right + 8; // place right
+    }
+
+    // Vertical positioning
+    if (rect.top + modalHeight > screenHeight) {
+      y = screenHeight - modalHeight - 8; 
+    } else {
+      y = rect.top;
+    }
+
+    setActionModal({
+      show: true,
+      x,
+      y,
+      message,
+    });
+  };
+
+  const closeActionModal = () =>
+    setActionModal({ show: false, x: 0, y: 0, message: null });
+
+  // click outside to close
+  useEffect(() => {
+    const closeOnOutside = (e) => {
+      if (actionModal.show && !e.target.closest(".msg-action-modal")) {
+        closeActionModal();
+      }
+    };
+    window.addEventListener("click", closeOnOutside);
+    return () => window.removeEventListener("click", closeOnOutside);
+  }, [actionModal.show]);
+
+  // action handlers
+  const handleDelete = () => {
+    console.log("Delete message:", actionModal.message);
+    closeActionModal();
+  };
+  const handleReply = () => {
+    console.log("Reply to message:", actionModal.message);
+    closeActionModal();
+  };
+  const handleCopy = () => {
+    navigator.clipboard.writeText(actionModal.message.text || "");
+    showToast("Copied!", "default", 1000);
+    closeActionModal();
+  };
+  const handleEdit = () => {
+    console.log("Edit message:", actionModal.message);
+    closeActionModal();
+  };
+  const handleForward = () => {
+    console.log("Forward message:", actionModal.message);
+    closeActionModal();
+  };
+
+
+
+  // file input ref (hidden)
+  const fileInputRef = useRef(null);
 
   const sanitizeKey = (s = "") =>
     String(s).toLowerCase().replace(/[^a-z0-9]/g, "_");
@@ -88,7 +187,6 @@ export default function ChatPanel() {
   const setMeOnline = async () => {
     if (!currentEmail) return;
     try {
-      // keep a small "online" flag plus lastActive server timestamp
       await setDoc(
         doc(db, "currentUsers", currentEmail),
         { online: true, lastActive: serverTimestamp() },
@@ -101,7 +199,6 @@ export default function ChatPanel() {
   const setMeOffline = async () => {
     if (!currentEmail) return;
     try {
-      // mark offline and update lastActive to server time so others can use recency check
       await setDoc(
         doc(db, "currentUsers", currentEmail),
         { online: false, lastActive: serverTimestamp() },
@@ -112,33 +209,24 @@ export default function ChatPanel() {
     }
   };
 
-  // Manage current user's presence using visibility/focus/unload
+  const comingSoon = () => {
+    showToast("Sorry feature disabled!", "default", 1000)
+  }
+
+  // Manage presence
   useEffect(() => {
     if (!currentEmail) return;
 
-    // set online immediately
     setMeOnline();
-
-    // heartbeat to update lastActive (keeps doc fresh)
-    presenceHeartbeatRef.current = setInterval(() => {
-      setMeOnline();
-    }, 30_000); // every 30s
+    presenceHeartbeatRef.current = setInterval(() => setMeOnline(), 30_000);
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        setMeOnline();
-      } else {
-        // when tab hidden => mark offline (best effort)
-        setMeOffline();
-      }
+      if (document.visibilityState === "visible") setMeOnline();
+      else setMeOffline();
     };
-
     const onFocus = () => setMeOnline();
     const onBlur = () => setMeOffline();
-    const onBeforeUnload = () => {
-      
-      setMeOffline();
-    };
+    const onBeforeUnload = () => setMeOffline();
 
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("focus", onFocus);
@@ -151,12 +239,12 @@ export default function ChatPanel() {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("beforeunload", onBeforeUnload);
-      // cleanup: attempt to set offline on unmount
       setMeOffline();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentEmail]);
 
+  // main listeners
   useEffect(() => {
     if (!otherKey || !currentEmail) {
       setLoading(false);
@@ -180,6 +268,7 @@ export default function ChatPanel() {
                 email: data.email || otherKey,
                 pin: data.pin,
                 profilePic: data.profilePic,
+                whatsappNumber: data.whatsappNumber,
               });
           } else {
             if (mounted)
@@ -204,7 +293,6 @@ export default function ChatPanel() {
           });
         }
 
-        // Messages listener
         unsubMessages = onSnapshot(
           query(
             collection(db, "conversations", idCombined, "messages"),
@@ -213,7 +301,6 @@ export default function ChatPanel() {
           async (snap) => {
             const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-            // Play receive sound if last msg is from other user
             if (
               msgs.length > messages.length &&
               msgs[msgs.length - 1]?.sender !== currentEmail
@@ -221,7 +308,7 @@ export default function ChatPanel() {
               receiveSoundRef.current.play().catch(() => {});
             }
 
-            // Auto-update "sent" → "delivered"
+            // Auto-update sent -> delivered
             const batch = writeBatch(db);
             msgs.forEach((m) => {
               if (m.sender !== currentEmail && m.status === "sent") {
@@ -237,55 +324,39 @@ export default function ChatPanel() {
           }
         );
 
-        // Presence listener for other user:
-        // We interpret the other user's doc fields: { online: boolean, lastActive: Timestamp }
-        // To avoid "stale online" we also consider lastActive recency (threshold)
-        const ONLINE_THRESHOLD_MS = 90_000; // 90 seconds
-
+        // presence listener
+        const ONLINE_THRESHOLD_MS = 90_000;
         unsubPresence = onSnapshot(doc(db, "currentUsers", otherKey), (snap) => {
           if (!mounted) return;
-
           if (!snap.exists()) {
             setIsOnline(false);
             return;
           }
-
           const data = snap.data() || {};
           let onlineFlag = !!data.online;
-
-          // compute recency from lastActive (if available)
           const la = data.lastActive;
           let lastMs = 0;
           if (la) {
-            if (typeof la.toDate === "function") {
-              lastMs = la.toDate().getTime();
-            } else if (la.seconds) {
-              lastMs = la.seconds * 1000;
-            } else {
+            if (typeof la.toDate === "function") lastMs = la.toDate().getTime();
+            else if (la.seconds) lastMs = la.seconds * 1000;
+            else {
               const parsed = new Date(la);
               if (!isNaN(parsed)) lastMs = parsed.getTime();
             }
           }
-
           const now = Date.now();
           const recent = lastMs && now - lastMs <= ONLINE_THRESHOLD_MS;
-
-          // final online determination: either online flag true OR lastActive is recent
           const computedOnline = onlineFlag || recent;
           setIsOnline(Boolean(computedOnline));
         });
 
-        // Typing indicator listener
         unsubTyping = onSnapshot(
           doc(db, "typingStatus", idCombined),
           (snap) => {
             if (!mounted) return;
             const data = snap.data();
-            if (data && data.typing && data.user === otherKey) {
-              setIsTyping(true);
-            } else {
-              setIsTyping(false);
-            }
+            if (data && data.typing && data.user === otherKey) setIsTyping(true);
+            else setIsTyping(false);
           }
         );
       } catch (err) {
@@ -304,7 +375,7 @@ export default function ChatPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [otherKey, currentEmail, passedOtherUser, messages.length]);
 
-  // Auto-update "delivered" → "seen" when chat is open
+  // Auto-update delivered -> seen when chat is open
   useEffect(() => {
     if (!convoId || !messages.length) return;
 
@@ -382,21 +453,155 @@ export default function ChatPanel() {
     }
   };
 
-  // profile pic modal handlers
+  
+  
+
+  // upload blob to Uploadcare and return file url
+  const uploadToUploadcare = async (blob) => {
+    if (!UPLOADCARE_PUB_KEY || UPLOADCARE_PUB_KEY === "YOUR_UPLOADCARE_PUBLIC_KEY") {
+      throw new Error(
+        "Uploadcare public key not set. Set REACT_APP_UPLOADCARE_PUBLIC_KEY in .env"
+      );
+    }
+    const fd = new FormData();
+    fd.append("UPLOADCARE_PUB_KEY", UPLOADCARE_PUB_KEY);
+    fd.append("UPLOADCARE_STORE", "1"); // store immediately
+    // Uploadcare expects a File object to set filename; convert blob to File
+    const file = new File([blob], `upload_${Date.now()}.jpg, { type: "image/jpeg" }`);
+    fd.append("file", file);
+
+    const res = await fetch("https://upload.uploadcare.com/base/", {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error("Uploadcare upload failed: " + txt);
+    }
+    const json = await res.json();
+    // json.file typically contains the CDN url like "https://ucarecdn.com/<uuid>/" or file field with uuid
+    // Construct CDN url if necessary
+    if (json.file) return json.file;
+    if (json.file_id) return `https://ucarecdn.com/${json.file_id}/`;
+    // fallback: stringify
+    return String(json);
+  };
+
+  // hidden file input click
+  const onPickImageClick = () => {
+    if (!convoId) {
+      alert("Conversation not ready yet.");
+      return;
+    }
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+
+  const onFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      alert("Please choose an image file.");
+      e.target.value = "";
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+
+      // prepare thumb and full blobs
+      const thumbBlob = await resizeImageToBlob(file, 400, 0.7);
+      const fullBlob = await resizeImageToBlob(file, 1400, 0.85);
+
+      // Upload both (parallel)
+      const [thumbUrl, fullUrl] = await Promise.all([
+        uploadToUploadcare(thumbBlob),
+        uploadToUploadcare(fullBlob),
+      ]);
+
+      // Save message with urls in Firestore
+      const msg = {
+        sender: currentEmail,
+        text: "",
+        imageThumbUrl: thumbUrl,
+        imageFullUrl: fullUrl,
+        createdAt: serverTimestamp(),
+        status: "sent",
+      };
+
+      await addDoc(collection(db, "conversations", convoId, "messages"), msg);
+      sendSoundRef.current.play().catch(() => {});
+
+      await updateDoc(doc(db, "conversations", convoId), {
+        lastMessage: "📷 Photo",
+        lastMessageTime: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // clear file input so same file can be picked again
+      e.target.value = "";
+    } catch (err) {
+      console.error("Image upload/send error:", err);
+      alert("Failed to upload/send image.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  // -----------------------
+  // Modals (profile + image)
+  // -----------------------
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape" && showPicModal) setShowPicModal(false);
+      if (e.key === "Escape") {
+        if (showPicModal) setShowPicModal(false);
+        if (imageModalUrl) setImageModalUrl(null);
+      }
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [showPicModal]);
+  }, [showPicModal, imageModalUrl]);
 
   const onProfileClick = () => {
     if (!otherUser?.profilePic) return;
     setShowPicModal(true);
   };
-
   const closePicModal = () => setShowPicModal(false);
+
+  const openImageModal = (url) => setImageModalUrl(url);
+  const closeImageModal = () => setImageModalUrl(null);
+
+  // WhatsApp helper (send last message)
+  const handleWhatsAppClick = async () => {
+    try {
+      let number = otherUser?.whatsappNumber;
+      if (!number) {
+        const uSnap = await getDoc(doc(db, "users", otherKey));
+        if (uSnap.exists()) number = uSnap.data()?.whatsappNumber;
+      }
+      if (!number) {
+        showToast(`${otherUser.pin} does not have whatsap number set!`, "default", 1500)
+        return;
+      }
+      const last = messages.length ? messages[messages.length - 1] : null;
+      let text = "Hi!";
+      if (last) {
+        if (last.text && last.text.trim()) text = last.text;
+        else if (last.imageThumbUrl || last.imageFullUrl) text = "📷 Photo";
+        else text = last.text || "Hi!";
+      }
+      const digits = number.replace(/[^\d]/g, "");
+      if (!digits) {
+        alert("Invalid WhatsApp number.");
+        return;
+      }
+      const encoded = encodeURIComponent(text);
+      const url = `https://wa.me/${digits}?text=${encoded}`;
+      window.open(url, "_blank");
+    } catch (err) {
+      console.error("WhatsApp open error:", err);
+      alert("Unable to open WhatsApp.");
+    }
+  };
 
   if (loading) {
     return (
@@ -408,6 +613,15 @@ export default function ChatPanel() {
 
   return (
     <div className="flex flex-col h-screen bg-white text-black">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={onFileSelected}
+      />
+
       {/* Header */}
       <div className="sticky top-0 z-50 backdrop-blur-md bg-white/30 border-b border-gray-100">
         <div className="flex items-center justify-between px-4 py-3">
@@ -425,11 +639,11 @@ export default function ChatPanel() {
                 <img
                   src={otherUser.profilePic}
                   alt="other"
-                  className="p-[2px] rounded-full border-2 border-purple-500 cursor-pointer"
+                  className="w-full h-full object-cover"
                 />
               ) : (
                 <div className="flex items-center justify-center w-full h-full text-gray-400">
-                  <FaUser className="text-purple-500 "/>
+                  <FaUser className="text-purple-500 " />
                 </div>
               )}
             </button>
@@ -451,6 +665,14 @@ export default function ChatPanel() {
           </div>
 
           <div className="flex items-center gap-4 text-purple-600">
+            <button
+              onClick={handleWhatsAppClick}
+              title="Send last message via WhatsApp"
+              className="p-1"
+            >
+              <FaWhatsapp className="text-xl" />
+            </button>
+
             <FaBullhorn className="text-xl" />
             <FaPhoneAlt className="text-xl" />
           </div>
@@ -458,9 +680,9 @@ export default function ChatPanel() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 cursor-default">
         {messages.length === 0 && (
-          <div className="py-10 text-center text-gray-400">
+          <div className="py-10 text-center text-gray-400 cursor-pointer">
             No messages yet. Send a chirp!
           </div>
         )}
@@ -473,13 +695,31 @@ export default function ChatPanel() {
               className={`flex ${isMe ? "justify-end" : "justify-start"}`}
             >
               <div
+                onClick={(e) => handleBubbleClick(e, m)}
                 className={`relative px-4 py-2 rounded-2xl max-w-[70%] animate-pop shadow-sm ${
                   isMe
                     ? "bg-gradient-to-br from-purple-700 to-purple-600 text-white rounded-br-none"
                     : "bg-purple-500 text-white rounded-bl-none"
                 }`}
               >
-                <div className="whitespace-pre-wrap">{m.text}</div>
+                {/* Image message */}
+                {m.imageThumbUrl ? (
+                  <div
+                    className="cursor-pointer"
+                    onClick={() =>
+                      openImageModal(m.imageFullUrl || m.imageThumbUrl)
+                    }
+                  >
+                    <img
+                      src={m.imageThumbUrl}
+                      alt="sent"
+                      className="w-full max-w-[320px] h-auto rounded-lg object-cover"
+                    />
+                  </div>
+                ) : (
+                  <div className="whitespace-pre-wrap">{m.text}</div>
+                )}
+
                 <div
                   className={`flex items-center ${
                     isMe ? "justify-end" : "justify-start"
@@ -508,19 +748,62 @@ export default function ChatPanel() {
 
         <div ref={endRef} />
       </div>
+      {actionModal.show && (
+        <div
+          className="msg-action-modal fixed z-50 bg-white shadow-lg rounded-xl p-2 flex flex-col gap-2 border border-gray-200 animate-slide-in"
+          style={{
+            top: `${actionModal.y}px`,
+            left: `${actionModal.x}px`,
+          }}
+        >
+          <button
+            onClick={handleDelete}
+            className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
+          >
+            <FaTrash className="text-red-500" /> Delete
+          </button>
+          <button
+            onClick={handleReply}
+            className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
+          >
+            <FaReply className="text-blue-500" /> Reply
+          </button>
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
+          >
+            <FaCopy className="text-gray-600" /> Copy
+          </button>
+          <button
+            onClick={handleEdit}
+            className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
+          >
+            <FaEdit className="text-green-500" /> Edit
+          </button>
+          <button
+            onClick={handleForward}
+            className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
+          >
+            <FaShare className="text-purple-500" /> Forward
+          </button>
+        </div>
+      )}
 
       {/* Input */}
       <div className="sticky bottom-0 bg-white border-t px-3 py-2">
         <div className="flex items-center gap-3">
-          <FaPaperclip className="text-xl text-purple-600" />
-          <FaImage className="text-xl text-purple-600" />
+          {/* image pick button */}
+          <button onClick={comingSoon}>
+            <FaImage className="text-xl text-purple-600" />
+          </button>
+
           <input
             type="text"
-            placeholder="Type a message"
+            placeholder="Type chirps..."
             value={messageText}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            className="flex-1 px-4 py-2 rounded-full border border-gray-300 focus:outline-none"
+            className="flex-1 px-4 py-2 rounded-full border border-purple-400 focus:outline-none"
           />
           <button
             onClick={handleSend}
@@ -543,18 +826,17 @@ export default function ChatPanel() {
           onClick={closePicModal}
         >
           <div
-            className="max-w-[92%] max-h-[86%] p-4"
+            className="max-w-[92%] max-h-[86%] p-4 relative"
             onClick={(e) => e.stopPropagation()}
           >
             <button
               aria-label="Close"
               onClick={closePicModal}
-              className="absolute top-6 right-6 z-70 text-white text-2xl"
+              className="absolute top-3 right-3 z-70 text-white text-lg  bg-black/30 rounded-full p-1"
             >
               ✕
             </button>
             <div className="w-full h-full flex items-center justify-center">
-              
               <img
                 src={otherUser.profilePic}
                 alt="Profile zoom"
@@ -568,38 +850,60 @@ export default function ChatPanel() {
         </div>
       )}
 
+      {/* Image modal (full-size) */}
+      {imageModalUrl && (
+        <div
+          className="fixed inset-0 z-70 flex items-center justify-center bg-black/70"
+          onClick={closeImageModal}
+        >
+          <div
+            className="max-w-[95%] max-h-[90%] relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={closeImageModal}
+              aria-label="Close image"
+              className="absolute top-2 right-2 z-80 bg-black/40 text-white rounded-full p-2"
+            >
+              ✕
+            </button>
+            <img
+              src={imageModalUrl}
+              alt="Full"
+              className="max-w-full max-h-[80vh] rounded-lg shadow-2xl object-contain"
+            />
+          </div>
+        </div>
+      )}
+
       <style>{`
         @keyframes pop {
           0% { transform: scale(0.94); opacity: 0; }
           60% { transform: scale(1.02); opacity: 1; }
           100% { transform: scale(1); opacity: 1; }
         }
-        .animate-pop {
-          animation: pop 220ms cubic-bezier(.2,.9,.3,1) both;
-        }
+        .animate-pop { animation: pop 220ms cubic-bezier(.2,.9,.3,1) both; }
 
         @keyframes blink {
           0%, 80%, 100% { transform: scale(0.8); opacity: 0.4; }
           40% { transform: scale(1); opacity: 1; }
         }
-        .dot {
-          width: 6px;
-          height: 6px;
-          background-color: white;
-          border-radius: 50%;
-          display: inline-block;
-          animation: blink 1.4s infinite both;
-        }
-        .dot:nth-child(1) { animation-delay: 0s; }
-        .dot:nth-child(2) { animation-delay: 0.2s; }
-        .dot:nth-child(3) { animation-delay: 0.4s; }
+        .dot { width: 6px; height: 6px; background-color: white; border-radius: 50%; display: inline-block; animation: blink 1.4s infinite both; }
+        .dot:nth-child(1) { animation-delay: 0s; } .dot:nth-child(2) { animation-delay: 0.2s; } .dot:nth-child(3) { animation-delay: 0.4s; }
 
-        /* zoom-in animation used for modal image */
         @keyframes zoomIn {
           0% { transform: scale(0.88); opacity: 0; }
           60% { transform: scale(1.02); opacity: 1; }
           100% { transform: scale(1); opacity: 1; }
         }
+
+        @keyframes slideIn {
+  0% { transform: translateY(-8px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.animate-slide-in {
+  animation: slideIn 200ms ease-out forwards;
+}
       `}</style>
     </div>
   );
