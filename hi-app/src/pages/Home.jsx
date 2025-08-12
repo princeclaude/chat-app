@@ -17,8 +17,8 @@ import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { FiMoreVertical, FiRefreshCw, FiSearch, FiX } from "react-icons/fi";
-import { FaUser } from "react-icons/fa";
+import { FiMoreVertical, FiRefreshCw, FiSearch } from "react-icons/fi";
+import { FaUser, FaTrash } from "react-icons/fa";
 import BottomTab from "../components/BottomTab";
 import { useProfile } from "../contexts/ProfileContext";
 
@@ -32,14 +32,15 @@ export default function ChatList() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [isClosing, setIsClosing] = useState(false);
-  const [swipedId, setSwipedId] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const navigate = useNavigate();
   const userCacheRef = useRef(new Map()); // cache for user docs to avoid refetch
 
-  // swipe handling refs
+  // pointer / drag state
   const pointerStartXRef = useRef(null);
   const activePointerIdRef = useRef(null);
+  const [activeDrag, setActiveDrag] = useState(null); // { id, delta }
+  const [swipedId, setSwipedId] = useState(null); // persistent partial swipe reveal
 
   const closeModal = () => {
     setIsClosing(true);
@@ -179,7 +180,7 @@ export default function ChatList() {
       const pageSize = 500;
 
       while (true) {
-        const qArgs = [messagesColRef, orderBy("_name_"), limit(pageSize)];
+        const qArgs = [messagesColRef, orderBy("name"), limit(pageSize)];
         if (last) qArgs.push(startAfter(last));
         const q = query(...qArgs);
         const snap = await getDocs(q);
@@ -203,32 +204,74 @@ export default function ChatList() {
     }
   };
 
-  // Pointer/touch handlers for swipe detection
+  // pointer/touch handlers
   const handlePointerDown = (e, id) => {
-    // support both pointer and touch events gracefully
+    // support pointer and touch
     const clientX = e.clientX ?? (e.touches?.[0]?.clientX ?? null);
     pointerStartXRef.current = clientX;
     activePointerIdRef.current = id;
+
+    // Make sure we're not leaving stale drag state
+    setActiveDrag({ id, delta: 0 });
   };
 
-  const handlePointerMove = (e, id) => {
+  const handlePointerMove = (e, id, rowRef) => {
     if (activePointerIdRef.current !== id) return;
     const startX = pointerStartXRef.current;
     if (startX == null) return;
     const currentX = e.clientX ?? (e.touches?.[0]?.clientX ?? null);
     if (currentX == null) return;
-    const delta = currentX - startX;
-    // left swipe threshold
-    if (delta < -50) {
-      setSwipedId(id);
-    } else if (delta > 30) {
-      setSwipedId(null);
-    }
+    let delta = currentX - startX; // right swipe => positive
+    // clamp - allow some left drag but we mainly support right swipes
+    if (delta < 0) delta = 0;
+    // limit delta so row doesn't fly away
+    const maxDelta = (rowRef?.current?.offsetWidth || window.innerWidth) * 0.9;
+    if (delta > maxDelta) delta = maxDelta;
+    setActiveDrag({ id, delta });
   };
 
-  const handlePointerUp = () => {
+  const handlePointerUp = (e, id, rowRef) => {
+    const startX = pointerStartXRef.current;
+    const active = activeDrag;
     pointerStartXRef.current = null;
     activePointerIdRef.current = null;
+
+    if (!active || active.id !== id) {
+      setActiveDrag(null);
+      return;
+    }
+
+    const delta = active.delta || 0;
+    const rowWidth = rowRef?.current?.offsetWidth || window.innerWidth;
+    // Full-swipe threshold: 50% of row or 140px
+    const fullThreshold = Math.min(140, rowWidth * 0.5);
+    // Partial reveal threshold
+    const partialThreshold = 60;
+
+    if (delta >= fullThreshold) {
+      // Trigger confirm delete automatically on full swipe
+      setActiveDrag(null);
+      setConfirmDeleteId(id);
+      setSwipedId(null);
+      return;
+    }
+
+    if (delta >= partialThreshold) {
+      // Keep revealed state
+      setSwipedId(id);
+    } else {
+      // Reset
+      setSwipedId(null);
+    }
+
+    setActiveDrag(null);
+  };
+
+  // helper row ref map to read width per row
+  const rowRefs = useRef(new Map());
+  const getRowRef = (id) => {
+    if (!rowRefs.current.has(id)) rowRefs.current.set(id, { current: null });
+    return rowRefs.current.get(id);
   };
 
   if (loading) {
@@ -309,7 +352,8 @@ export default function ChatList() {
               className="absolute -top-4 -right-4 bg-white text-purple-700 rounded-full p-2 shadow hover:bg-purple-100 transition"
               onClick={closeModal}
             >
-              <FiX className="text-xl" />
+              {/* small close X */}
+              <FiSearch className="text-xl opacity-0" />
             </button>
           </div>
         </div>
@@ -346,33 +390,60 @@ export default function ChatList() {
             const otherPic = chat.otherUserPic || null; // null triggers FaUser fallback
             const otherPin = chat.otherUserPin || chat.otherUserEmail || "UNKNOWN";
             const targetParam = encodeURIComponent(chat.otherUserEmail || chat.otherUserId || chat.id);
+            const rowRef = getRowRef(chat.id);
+
+            // compute transform based on activeDrag or swipedId
+            let translateX = 0;
+            if (activeDrag?.id === chat.id) {
+              translateX = Math.min(activeDrag.delta, (rowRef?.current?.offsetWidth || window.innerWidth) * 0.9);
+            } else if (swipedId === chat.id) {
+              translateX = 84; // persistent reveal amount
+            } else {
+              translateX = 0;
+            }
 
             return (
               <div
                 key={chat.id}
                 className="relative group"
                 onPointerDown={(e) => handlePointerDown(e, chat.id)}
-                onPointerMove={(e) => handlePointerMove(e, chat.id)}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
+                onPointerMove={(e) => handlePointerMove(e, chat.id, rowRef)}
+                onPointerUp={(e) => handlePointerUp(e, chat.id, rowRef)}
+                onPointerCancel={() => {
+                  pointerStartXRef.current = null;
+                  activePointerIdRef.current = null;
+                  setActiveDrag(null);
+                }}
               >
-                {/* delete button - reveals when swiped or hover */}
+                {/* delete button - left side, visible when dragging/revealed */}
                 <button
                   aria-label="Delete conversation"
                   onClick={(ev) => {
                     ev.stopPropagation();
                     setConfirmDeleteId(chat.id);
+                    setSwipedId(null);
                   }}
-                  className={`absolute right-3 top-1/2 transform -translate-y-1/2 z-20 shadow text-white p-2 rounded-full transition-opacity duration-200 ${
-                    swipedId === chat.id ? "opacity-100 bg-red-600" : "opacity-0 group-hover:opacity-100 bg-red-600"
+                  className={`absolute left-3 top-1/2 transform -translate-y-1/2 z-20 shadow text-white p-3 rounded-full transition-opacity duration-150 ${
+                    (activeDrag?.id === chat.id && activeDrag.delta > 20) || swipedId === chat.id
+                      ? "opacity-100 bg-red-600"
+                      : "opacity-0 group-hover:opacity-100 bg-red-600"
                   }`}
                 >
-                  <FiX />
+                  <FaTrash />
                 </button>
 
-                {/* clickable row; translates left when swiped */}
+                {/* clickable row; translates right when swiped right */}
                 <div
-                  onClick={() =>
+                  ref={(el) => {
+                    const r = getRowRef(chat.id);
+                    if (r) r.current = el;
+                  }}
+                  onClick={() => {
+                    // if currently revealed, dismiss on click; else navigate
+                    if (swipedId === chat.id) {
+                      setSwipedId(null);
+                      return;
+                    }
                     navigate(`/chat/${targetParam}`, {
                       state: {
                         otherUser: {
@@ -381,12 +452,12 @@ export default function ChatList() {
                           profilePic: chat.otherUserPic,
                         },
                       },
-                    })
-                  }
-                  className="flex items-center justify-between p-3 rounded-lg shadow-md bg-gray-50 hover:bg-purple-50 transition-all duration-300 cursor-pointer"
+                    });
+                  }}
+                  className="flex items-center justify-between p-3 rounded-lg shadow-md bg-gray-50 hover:bg-purple-50 transition-all duration-150 cursor-pointer"
                   style={{
-                    transform: swipedId === chat.id ? "translateX(-84px)" : "translateX(0)",
-                    transition: "transform 180ms ease",
+                    transform: `translateX(${translateX}px)`,
+                    transition: activeDrag?.id === chat.id ? "none" : "transform 160ms ease",
                   }}
                 >
                   <div className="flex items-center">
@@ -464,6 +535,10 @@ export default function ChatList() {
         }
         .animate-zoomIn { animation: zoomIn 200ms ease both; }
         .animate-zoomOut { animation: zoomOut 180ms ease both; }
+
+        /* small fade in for the menu if needed */
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px);} to { opacity: 1; transform: translateY(0);} }
+        .animate-fadeIn { animation: fadeIn 140ms ease both; }
       `}</style>
  </div>
 );

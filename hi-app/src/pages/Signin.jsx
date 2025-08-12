@@ -80,7 +80,7 @@ const Signin = () => {
             <button
               type="button"
               onClick={() => setShowPassword((prev) => !prev)}
-              className="absolute right-3 top-3 text-gray-500"
+              className="absolute right-3 top-3 text-gray-500 mt-3"
             >
               {showPassword ? <FaEyeSlash /> : <FaEye />}
             </button>

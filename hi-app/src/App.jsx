@@ -17,15 +17,17 @@ function App() {
   });
   return (
     <>
+      <ToastProvider>
       <ProfileProvider>
         <AudioCallProvider>
           <SettingsProvider>
-            <ToastProvider>
+            
               <Navigation />
-            </ToastProvider>
+            
           </SettingsProvider>
         </AudioCallProvider>
       </ProfileProvider>
+      </ToastProvider>
     </>
   );
 }

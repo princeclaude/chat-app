@@ -79,6 +79,7 @@ export const SettingsProvider = ({ children }) => {
   // ✅ Logout
   const logout = async () => {
     await signOut(auth);
+    
   };
 
   // ✅ Delete account

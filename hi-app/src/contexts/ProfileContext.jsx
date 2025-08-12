@@ -16,6 +16,7 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
 import { toast } from "react-toastify";
+import { useToast } from "../contexts/ToastContext";
 
 // Context setup
 const ProfileContext = createContext();
@@ -25,6 +26,7 @@ export const ProfileProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
 
   
   const generatePin = () => {
@@ -74,7 +76,7 @@ export const ProfileProvider = ({ children }) => {
   const signin = async (email, password) => {
     try {
       if (!email || !password) {
-        toast.error("Email and password are required");
+        showToast("Email and password are required", "default", 1000);
         return false;
       }
 
@@ -83,7 +85,7 @@ export const ProfileProvider = ({ children }) => {
       const profileDoc = await getDoc(userDocRef);
 
       if (!profileDoc.exists()) {
-        toast.error("No account found with this email");
+        showToast("No account found with this email", "default",1000);
         return false; 
       }
 
@@ -105,16 +107,16 @@ export const ProfileProvider = ({ children }) => {
         lastActive: serverTimestamp(),
       });
 
-      toast.success("Signed in successfully");
+      showToast("Signed in successfully", "default", 1000);
       return true;
     } catch (err) {
       
       if (err.code === "auth/wrong-password") {
-        toast.error("Incorrect password");
+        showToast("Incorrect password", "default", 1000);
       } else if (err.code === "auth/user-not-found") {
-        toast.error("No user found with these credentials");
+        showToast("No user found with these credentials", "default", 1000);
       } else {
-        toast.error(err.message || "Sign-in failed");
+        showToast( "Sign-in failed, check email or password!", "default", 1000);
       }
 
       return false;

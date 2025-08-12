@@ -12,6 +12,8 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteDoc,
+  getDocs,
   writeBatch,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -52,6 +54,7 @@ export default function ChatPanel() {
   const [loading, setLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const { showToast } = useToast();
+  const [replyTo, setReplyTo] = useState(null);
 
   // modals
   const [showPicModal, setShowPicModal] = useState(false);
@@ -99,7 +102,7 @@ export default function ChatPanel() {
 
     // Vertical positioning
     if (rect.top + modalHeight > screenHeight) {
-      y = screenHeight - modalHeight - 8; 
+      y = screenHeight - modalHeight - 8;
     } else {
       y = rect.top;
     }
@@ -126,15 +129,92 @@ export default function ChatPanel() {
     return () => window.removeEventListener("click", closeOnOutside);
   }, [actionModal.show]);
 
-  // action handlers
-  const handleDelete = () => {
-    console.log("Delete message:", actionModal.message);
-    closeActionModal();
+  const handleDelete = async () => {
+    const msg = actionModal?.message;
+    if (!msg || !convoId || !msg.id) {
+      closeActionModal?.();
+      return;
+    }
+
+    // close the action modal immediately
+    closeActionModal?.();
+
+    // optimistic UI remove
+    setMessages((prev) => prev.filter((m) => m.id !== msg.id));
+
+    try {
+      // delete the message document
+      await deleteDoc(doc(db, "conversations", convoId, "messages", msg.id));
+
+      // recompute conversation lastMessage by fetching the newest message (if any)
+      const lastSnap = await getDocs(
+        query(
+          collection(db, "conversations", convoId, "messages"),
+          orderBy("createdAt", "desc")
+        )
+      );
+
+      if (!lastSnap.empty) {
+        const lastDoc = lastSnap.docs[0];
+        const last = lastDoc.data();
+        const lastText =
+          (last.text && last.text.trim()) ||
+          (last.imageThumbUrl || last.imageFullUrl ? "📷 Photo" : "");
+        await updateDoc(doc(db, "conversations", convoId), {
+          lastMessage: lastText,
+          lastMessageTime: last.createdAt || serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+      } else {
+        // no messages left in conversation
+        await updateDoc(doc(db, "conversations", convoId), {
+          lastMessage: "",
+          lastMessageTime: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }).catch(() => {});
+      }
+
+      showToast?.("Message deleted", "default", 1200);
+    } catch (err) {
+      console.error("Failed to delete message:", err);
+      showToast?.("Failed to delete message", "default", 2000);
+
+      // rollback / refresh: re-fetch whole messages list to ensure UI sync
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "conversations", convoId, "messages"),
+            orderBy("createdAt", "asc")
+          )
+        );
+        const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setMessages(msgs);
+      } catch (e) {
+        console.error("Failed to refresh messages after delete failure:", e);
+      }
+    }
   };
-  const handleReply = () => {
-    console.log("Reply to message:", actionModal.message);
-    closeActionModal();
+
+  
+
+  const handleReply = (message) => {
+    // message should be the message object (include id)
+    if (!message) return;
+    setReplyTo({
+      id: message.id,
+      sender: message.sender,
+      text: message.text || null,
+      imageThumbUrl: message.imageThumbUrl || null,
+    });
+    closeActionModal(); // optional: close the action modal after selecting reply
+    // ensure input is focused (optional UX)
+    setTimeout(() => {
+      const el = document.querySelector('input[type="text"]');
+      if (el) el.focus();
+    }, 50);
   };
+
+
   const handleCopy = () => {
     navigator.clipboard.writeText(actionModal.message.text || "");
     showToast("Copied!", "default", 1000);
@@ -149,13 +229,13 @@ export default function ChatPanel() {
     closeActionModal();
   };
 
-
-
   // file input ref (hidden)
   const fileInputRef = useRef(null);
 
   const sanitizeKey = (s = "") =>
-    String(s).toLowerCase().replace(/[^a-z0-9]/g, "_");
+    String(s)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "_");
 
   const formatTime = (ts) => {
     if (!ts) return "";
@@ -210,8 +290,8 @@ export default function ChatPanel() {
   };
 
   const comingSoon = () => {
-    showToast("Sorry feature disabled!", "default", 1000)
-  }
+    showToast("Sorry feature disabled!", "default", 1000);
+  };
 
   // Manage presence
   useEffect(() => {
@@ -272,7 +352,11 @@ export default function ChatPanel() {
               });
           } else {
             if (mounted)
-              setOtherUser({ email: otherKey, pin: otherKey, profilePic: null });
+              setOtherUser({
+                email: otherKey,
+                pin: otherKey,
+                profilePic: null,
+              });
           }
         }
 
@@ -326,36 +410,41 @@ export default function ChatPanel() {
 
         // presence listener
         const ONLINE_THRESHOLD_MS = 90_000;
-        unsubPresence = onSnapshot(doc(db, "currentUsers", otherKey), (snap) => {
-          if (!mounted) return;
-          if (!snap.exists()) {
-            setIsOnline(false);
-            return;
-          }
-          const data = snap.data() || {};
-          let onlineFlag = !!data.online;
-          const la = data.lastActive;
-          let lastMs = 0;
-          if (la) {
-            if (typeof la.toDate === "function") lastMs = la.toDate().getTime();
-            else if (la.seconds) lastMs = la.seconds * 1000;
-            else {
-              const parsed = new Date(la);
-              if (!isNaN(parsed)) lastMs = parsed.getTime();
+        unsubPresence = onSnapshot(
+          doc(db, "currentUsers", otherKey),
+          (snap) => {
+            if (!mounted) return;
+            if (!snap.exists()) {
+              setIsOnline(false);
+              return;
             }
+            const data = snap.data() || {};
+            let onlineFlag = !!data.online;
+            const la = data.lastActive;
+            let lastMs = 0;
+            if (la) {
+              if (typeof la.toDate === "function")
+                lastMs = la.toDate().getTime();
+              else if (la.seconds) lastMs = la.seconds * 1000;
+              else {
+                const parsed = new Date(la);
+                if (!isNaN(parsed)) lastMs = parsed.getTime();
+              }
+            }
+            const now = Date.now();
+            const recent = lastMs && now - lastMs <= ONLINE_THRESHOLD_MS;
+            const computedOnline = onlineFlag || recent;
+            setIsOnline(Boolean(computedOnline));
           }
-          const now = Date.now();
-          const recent = lastMs && now - lastMs <= ONLINE_THRESHOLD_MS;
-          const computedOnline = onlineFlag || recent;
-          setIsOnline(Boolean(computedOnline));
-        });
+        );
 
         unsubTyping = onSnapshot(
           doc(db, "typingStatus", idCombined),
           (snap) => {
             if (!mounted) return;
             const data = snap.data();
-            if (data && data.typing && data.user === otherKey) setIsTyping(true);
+            if (data && data.typing && data.user === otherKey)
+              setIsTyping(true);
             else setIsTyping(false);
           }
         );
@@ -402,38 +491,66 @@ export default function ChatPanel() {
     );
   };
 
-  const handleSend = async () => {
-    if (!messageText.trim() || !convoId || !currentEmail) return;
-    try {
-      const msg = {
-        sender: currentEmail,
-        text: messageText.trim(),
-        createdAt: serverTimestamp(),
-        status: "sent",
-      };
+ const handleSend = async () => {
+   
+   if (!convoId || !currentEmail) return;
+   if (!messageText.trim() && !replyTo && !isUploading) return; // nothing to send
 
-      await addDoc(collection(db, "conversations", convoId, "messages"), msg);
-      sendSoundRef.current.play().catch(() => {});
+   try {
+     const msg = {
+       sender: currentEmail,
+       text: messageText.trim() || "", // empty string allowed when replying only
+       createdAt: serverTimestamp(),
+       status: "sent",
+     };
 
-      await updateDoc(doc(db, "conversations", convoId), {
-        lastMessage: msg.text,
-        lastMessageTime: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+     // attach reply metadata if present
+     if (replyTo) {
+       // Keep this a plain object (no Firestore refs) so it serializes cleanly
+       msg.replyTo = {
+         id: replyTo.id,
+         sender: replyTo.sender,
+         text: replyTo.text || null,
+         imageThumbUrl: replyTo.imageThumbUrl || null,
+       };
+     }
 
-      setMessageText("");
-      await updateTypingStatus(false);
-    } catch (err) {
-      console.error("send message error:", err);
-    }
-  };
+     // If you're supporting image only sends, you would also attach image fields here
+     // e.g. if (pendingImage) msg.imageThumbUrl = pendingImage.thumbUrl
 
+     // write to Firestore
+     await addDoc(collection(db, "conversations", convoId, "messages"), msg);
+     sendSoundRef.current.play().catch(() => {});
+
+     // update conversation metadata
+     await updateDoc(doc(db, "conversations", convoId), {
+       lastMessage: msg.text || "📷 Photo",
+       lastMessageTime: serverTimestamp(),
+       updatedAt: serverTimestamp(),
+     });
+
+     // clear composer + reply preview after successful send
+     setMessageText("");
+     setReplyTo(null);
+     await updateTypingStatus(false);
+   } catch (err) {
+     console.error("send message error:", err);
+     showToast?.("Failed to send message", "error", 2000);
+   } finally {
+     // ensure uploading flag is reset in any case
+     setIsUploading(false);
+   }
+ };
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
+
+  const cancelReply = () => {
+    setReplyTo(null);
+  }
 
   const handleChange = (e) => {
     setMessageText(e.target.value);
@@ -447,18 +564,20 @@ export default function ChatPanel() {
       case "delivered":
         return <BsCheckAll className="inline text-white text-lg font-bold" />;
       case "seen":
-        return <BsCheckAll className="inline text-green-600 text-lg font-bold" />;
+        return (
+          <BsCheckAll className="inline text-green-600 text-lg font-bold" />
+        );
       default:
         return null;
     }
   };
 
-  
-  
-
   // upload blob to Uploadcare and return file url
   const uploadToUploadcare = async (blob) => {
-    if (!UPLOADCARE_PUB_KEY || UPLOADCARE_PUB_KEY === "YOUR_UPLOADCARE_PUBLIC_KEY") {
+    if (
+      !UPLOADCARE_PUB_KEY ||
+      UPLOADCARE_PUB_KEY === "YOUR_UPLOADCARE_PUBLIC_KEY"
+    ) {
       throw new Error(
         "Uploadcare public key not set. Set REACT_APP_UPLOADCARE_PUBLIC_KEY in .env"
       );
@@ -467,7 +586,10 @@ export default function ChatPanel() {
     fd.append("UPLOADCARE_PUB_KEY", UPLOADCARE_PUB_KEY);
     fd.append("UPLOADCARE_STORE", "1"); // store immediately
     // Uploadcare expects a File object to set filename; convert blob to File
-    const file = new File([blob], `upload_${Date.now()}.jpg, { type: "image/jpeg" }`);
+    const file = new File(
+      [blob],
+      `upload_${Date.now()}.jpg, { type: "image/jpeg" }`
+    );
     fd.append("file", file);
 
     const res = await fetch("https://upload.uploadcare.com/base/", {
@@ -579,7 +701,11 @@ export default function ChatPanel() {
         if (uSnap.exists()) number = uSnap.data()?.whatsappNumber;
       }
       if (!number) {
-        showToast(`${otherUser.pin} does not have whatsap number set!`, "default", 1500)
+        showToast(
+          `${otherUser.pin} does not have whatsap number set!`,
+          "default",
+          1500
+        );
         return;
       }
       const last = messages.length ? messages[messages.length - 1] : null;
@@ -686,6 +812,21 @@ export default function ChatPanel() {
             No messages yet. Send a chirp!
           </div>
         )}
+        {messages.replyTo && (
+          <div className="quoted bg-white/10 px-2 py-1 rounded-md mb-2 text-xs text-gray-200">
+            <div className="font-semibold text-[10px] mb-0">
+              {messages.replyTo.sender}
+            </div>
+            <div className="truncate">
+              {messages.replyTo.text
+                ? messages.replyTo.text
+                : messages.replyTo.imageThumbUrl
+                ? "📷 Photo"
+                : ""}
+            </div>
+          </div>
+        )}
+        
 
         {messages.map((m) => {
           const isMe = m.sender === currentEmail;
@@ -763,7 +904,7 @@ export default function ChatPanel() {
             <FaTrash className="text-red-500" /> Delete
           </button>
           <button
-            onClick={handleReply}
+            onClick={() => handleReply(actionModal.message)}
             className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
           >
             <FaReply className="text-blue-500" /> Reply
@@ -785,6 +926,31 @@ export default function ChatPanel() {
             className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
           >
             <FaShare className="text-purple-500" /> Forward
+          </button>
+        </div>
+      )}
+
+      {/* Reply preview */}
+      {replyTo && (
+        <div className="mb-2 px-3 py-2 rounded-lg bg-gray-50 border-l-4 border-purple-500 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-xs text-gray-500">
+              Replying to {passedOtherUser?.pin}
+            </div>
+            <div className="text-sm text-gray-800 truncate max-w-[280px]">
+              {replyTo.text
+                ? replyTo.text
+                : replyTo.imageThumbUrl
+                ? "📷 Photo"
+                : ""}
+            </div>
+          </div>
+          <button
+            onClick={cancelReply}
+            aria-label="Cancel reply"
+            className="text-gray-400 hover:text-gray-600 ml-2"
+          >
+            ✕
           </button>
         </div>
       )}

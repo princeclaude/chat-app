@@ -11,6 +11,7 @@ import {
   doc,
 } from "firebase/firestore";
 import { useSettings } from "../contexts/SettingsContext";
+import { useNavigate } from "react-router-dom";
 
 export default function Settings() {
   const {
@@ -27,6 +28,8 @@ export default function Settings() {
   const [persistedPic, setPersistedPic] = useState(null);
   const [pin, setPin] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const navigate = useNavigate();
 
   // Fetch data for the current user ONLY
   useEffect(() => {
@@ -51,6 +54,12 @@ export default function Settings() {
 
     fetchUserData();
   }, []);
+
+  const handlelogout = async () => {
+    await logout();
+    navigate("/")
+    
+  }
 
   const handlePicUpload = async () => {
     if (!profilePicFile) return;
@@ -146,7 +155,7 @@ export default function Settings() {
 
       <div className="flex flex-col gap-2 pt-4">
         <button
-          onClick={logout}
+          onClick={handlelogout}
           className="bg-gray-800 text-white px-4 py-2 rounded"
         >
           Logout
