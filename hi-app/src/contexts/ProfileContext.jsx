@@ -107,7 +107,7 @@ export const ProfileProvider = ({ children }) => {
         lastActive: serverTimestamp(),
       });
 
-      showToast("Signed in successfully", "default", 1000);
+      
       return true;
     } catch (err) {
       

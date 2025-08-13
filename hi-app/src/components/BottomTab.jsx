@@ -7,7 +7,7 @@ export default function BottomTab({ isDesktop = false }) {
 
   const tabs = [
     { icon: <FaCommentDots />, label: "Chirps", path: "/home" },
-    { icon: <FaPhoneAlt />, label: "Chirp dials", path: "/callHistory" },
+    { icon: <FaPhoneAlt />, label: "Chirp calls", path: "/calllogs" },
     
     
     { icon: <FaSearch />, label: "Explore", path: "/explore" },

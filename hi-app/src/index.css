@@ -59,3 +59,29 @@
 .animate-zoomOut {
   animation: zoomOut 0.25s ease-out forwards;
 }
+
+@keyframes scaleLoop {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+.animate-scale-loop {
+  animation: scaleLoop 2s ease-in-out infinite;
+}
+
+@keyframes pulseSlow {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulseSlow 2.5s ease-in-out infinite;
+}

@@ -6,15 +6,12 @@ import { ProfileProvider } from "./contexts/ProfileContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { SettingsProvider } from "./contexts/SettingsContext";
 import { AudioCallProvider } from "./contexts/AudioCallContext";
-import UseDisableBrowserNavigation from "./hooks/UseDisableBrowserNavigation";
 
 
 
 
 function App() {
-  UseDisableBrowserNavigation(true, () => {
-    console.log("This is prevented, use in-app navigation!");
-  });
+  
   return (
     <>
       <ToastProvider>

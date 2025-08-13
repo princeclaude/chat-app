@@ -6,7 +6,7 @@ import {
   collection,
   query,
   where,
-  getDocs,
+  onSnapshot,
   updateDoc,
   doc,
 } from "firebase/firestore";
@@ -31,50 +31,53 @@ export default function Settings() {
 
   const navigate = useNavigate();
 
-  // Fetch data for the current user ONLY
+  // Real-time user data
   useEffect(() => {
-    const fetchUserData = async () => {
-      const currentUser = auth.currentUser;
-      if (!currentUser) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
 
-      setEmail(currentUser.email || "");
+    setEmail(currentUser.email || "");
 
-      const q = query(
-        collection(db, "users"),
-        where("email", "==", currentUser.email.toLowerCase())
-      );
-      const snapshot = await getDocs(q);
+    const q = query(
+      collection(db, "users"),
+      where("email", "==", currentUser.email.toLowerCase())
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       if (!snapshot.empty) {
         const data = snapshot.docs[0].data();
         setPin(data.pin || null);
         setPersistedPic(data.profilePic || null);
       }
       setLoading(false);
-    };
+    });
 
-    fetchUserData();
+    return () => unsubscribe();
   }, []);
 
-  const handlelogout = async () => {
+  const handleLogout = async () => {
     await logout();
-    navigate("/")
-    
-  }
+    navigate("/");
+  };
 
   const handlePicUpload = async () => {
     if (!profilePicFile) return;
+
     const uploadedUrl = await updateProfilePic(profilePicFile);
 
     const q = query(
       collection(db, "users"),
       where("email", "==", auth.currentUser.email.toLowerCase())
     );
-    const snapshot = await getDocs(q);
-    if (!snapshot.empty) {
-      const userRef = doc(db, "users", snapshot.docs[0].id);
-      await updateDoc(userRef, { profilePic: uploadedUrl });
-    }
-    setPersistedPic(uploadedUrl);
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      if (!snapshot.empty) {
+        const userRef = doc(db, "users", snapshot.docs[0].id);
+        updateDoc(userRef, { profilePic: uploadedUrl });
+      }
+    });
+
+    unsubscribe(); // immediately unsubscribe to avoid memory leak
   };
 
   if (loading) {
@@ -91,6 +94,7 @@ export default function Settings() {
       animate={{ opacity: 1, y: 0 }}
       className="p-4 space-y-6 bg-white text-black min-h-screen"
     >
+      {/* Profile Section */}
       <div className="flex flex-col items-center space-y-2">
         {persistedPic ? (
           <img
@@ -121,6 +125,7 @@ export default function Settings() {
         </button>
       </div>
 
+      {/* Email Section */}
       <div>
         <label>Email</label>
         <input
@@ -137,6 +142,7 @@ export default function Settings() {
         </button>
       </div>
 
+      {/* Password Section */}
       <div>
         <label>Password</label>
         <input
@@ -153,9 +159,10 @@ export default function Settings() {
         </button>
       </div>
 
+      {/* Logout & Delete */}
       <div className="flex flex-col gap-2 pt-4">
         <button
-          onClick={handlelogout}
+          onClick={handleLogout}
           className="bg-gray-800 text-white px-4 py-2 rounded"
         >
           Logout
@@ -168,6 +175,7 @@ export default function Settings() {
         </button>
       </div>
 
+      {/* Bottom Tab */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t">
         <BottomTab />
       </div>

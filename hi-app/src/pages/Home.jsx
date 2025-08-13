@@ -12,15 +12,19 @@ import {
   writeBatch,
   limit,
   startAfter,
+  updateDoc,
+  where,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { FiMoreVertical, FiRefreshCw, FiSearch } from "react-icons/fi";
+import { FiMoreVertical, FiRefreshCw, FiSearch, FiArchive } from "react-icons/fi";
 import { FaUser, FaTrash } from "react-icons/fa";
 import BottomTab from "../components/BottomTab";
 import { useProfile } from "../contexts/ProfileContext";
+import { FaTimes } from "react-icons/fa";
 
 dayjs.extend(relativeTime);
 
@@ -34,7 +38,8 @@ export default function ChatList() {
   const [isClosing, setIsClosing] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const navigate = useNavigate();
-  const userCacheRef = useRef(new Map()); // cache for user docs to avoid refetch
+  const userCacheRef = useRef(new Map()); 
+  const [archivedCount, setArchivedCount] = useState(0);
 
   // pointer / drag state
   const pointerStartXRef = useRef(null);
@@ -50,20 +55,49 @@ export default function ChatList() {
     }, 250); // match animation duration
   };
 
+  useEffect(() => {
+    if (!profile?.email) {
+      setArchivedCount(0);
+      return;
+    }
+    const q = query(
+      collection(db, "conversations"),
+      where("participants", "array-contains", profile.email),
+      where("archived", "==", true)
+    );
+
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setArchivedCount(snap.size || 0);
+      },
+      (err) => {
+        console.error("Archived count listener error:", err);
+        setArchivedCount(0);
+      }
+    );
+
+    return () => unsub();
+  }, [profile?.email]);
+
+  
+
   const currentUser = {
     pin: profile?.pin || "",
     profilePic: profile?.profilePic || "/default-profile.png",
     email: profile?.email || null,
   };
 
-  // subscribe to conversations
+  // subscribe to conversations (exclude archived by default in UI)
   useEffect(() => {
     const q = query(collection(db, "conversations"), orderBy("updatedAt", "desc"));
     const unsub = onSnapshot(q, (snapshot) => {
       const convos = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      // hide archived conversations from main list
+      const visible = convos.filter((c) => !c.archived);
       const filtered = profile?.email
-        ? convos.filter((c) => !c.participants || c.participants.includes(profile.email))
-        : convos;
+        ? visible.filter((c) => !c.participants || c.participants.includes(profile.email))
+        : visible;
       setConversations(filtered);
     });
     return () => unsub();
@@ -180,7 +214,8 @@ export default function ChatList() {
       const pageSize = 500;
 
       while (true) {
-        const qArgs = [messagesColRef, orderBy("name"), limit(pageSize)];
+        // order by createdAt (reliable message timestamp)
+        const qArgs = [messagesColRef, orderBy("createdAt"), limit(pageSize)];
         if (last) qArgs.push(startAfter(last));
         const q = query(...qArgs);
         const snap = await getDocs(q);
@@ -192,7 +227,6 @@ export default function ChatList() {
         });
         await batch.commit();
         last = snap.docs[snap.docs.length - 1];
-        // if fetched less than page size, done
         if (snap.docs.length < pageSize) break;
       }
 
@@ -200,7 +234,36 @@ export default function ChatList() {
       await deleteDoc(doc(db, "conversations", conversationId));
     } catch (err) {
       console.error("Failed to delete conversation and messages:", err);
-      // optional: you could re-fetch list to ensure UI is in sync
+      // optional: re-fetch if needed
+    }
+  };
+
+  // archive conversation (mark archived: true)
+  const archiveConversation = async (conversationId) => {
+    // optimistic removal from UI
+    setConversations((prev) => prev.filter((c) => c.id !== conversationId));
+    setEnriched((prev) => prev.filter((c) => c.id !== conversationId));
+    setSwipedId((id) => (id === conversationId ? null : id));
+
+    try {
+      await updateDoc(doc(db, "conversations", conversationId), {
+        archived: true,
+        archivedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // optional: update a badge count in localStorage so other UI pieces can react
+      try {
+        const prevCount = Number(localStorage.getItem("archivedCount") || 0);
+        localStorage.setItem("archivedCount", String(prevCount + 1));
+        // you may also dispatch a custom event so other parts of app can listen
+        window.dispatchEvent(new CustomEvent("archive:updated", { detail: { count: prevCount + 1 } }));
+      } catch (err) {
+        // ignore storage errors
+      }
+    } catch (err) {
+      console.error("Failed to archive conversation:", err);
+      // optional: re-fetch list
     }
   };
 
@@ -231,7 +294,6 @@ export default function ChatList() {
   };
 
   const handlePointerUp = (e, id, rowRef) => {
-    const startX = pointerStartXRef.current;
     const active = activeDrag;
     pointerStartXRef.current = null;
     activePointerIdRef.current = null;
@@ -303,14 +365,31 @@ export default function ChatList() {
               </div>
             )}
           </div>
-          <span className="font-extrabold text-purple-700">{currentUser.pin}</span>
+          <span className="font-extrabold text-purple-700">
+            {currentUser.pin}
+          </span>
         </div>
         <div className="flex items-center gap-4 text-gray-600">
-          <FiRefreshCw
-            className="text-xl text-purple-600 font-bold cursor-pointer"
-            title="Refresh"
-            onClick={() => setConversations((c) => [...c])}
-          />
+          {/* Archive button + badge (replace your existing FiArchive + badge block) */}
+          <div className="relative">
+            <button
+              onClick={() => navigate("/archived")}
+              title="Archived"
+              className="p-1 rounded-full relative z-10"
+              aria-label="Open archived chats"
+            >
+              <FiArchive className="text-xl text-purple-600 font-bold" />
+            </button>
+
+            {archivedCount > 0 && (
+              <span
+                className="absolute -top-1 -right-1 z-20 inline-flex items-center justify-center bg-red-600 text-white text-xs font-bold rounded-full px-1.5 py-0.5 leading-none shadow"
+                aria-hidden="true"
+              >
+                {archivedCount}
+              </span>
+            )}
+          </div>
           <FiMoreVertical
             className="text-xl text-purple-600 font-bold cursor-pointer"
             onClick={() => setShowMenu((prev) => !prev)}
@@ -340,7 +419,9 @@ export default function ChatList() {
           onClick={closeModal}
         >
           <div
-            className={`relative ${isClosing ? "animate-zoomOut" : "animate-zoomIn"}`}
+            className={`relative ${
+              isClosing ? "animate-zoomOut" : "animate-zoomIn"
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             <img
@@ -349,18 +430,20 @@ export default function ChatList() {
               className="w-72 h-72 rounded-full object-cover shadow-lg border-4 border-purple-500"
             />
             <button
-              className="absolute -top-4 -right-4 bg-white text-purple-700 rounded-full p-2 shadow hover:bg-purple-100 transition"
+              className="absolute -top-4 -right-4 w-8 h-8 bg-white text-purple-700 rounded-full p-2 shadow hover:bg-purple-100 transition"
               onClick={closeModal}
             >
               {/* small close X */}
-              <FiSearch className="text-xl opacity-0" />
+              <FaTimes />
             </button>
           </div>
         </div>
       )}
 
       {/* Title */}
-      <h1 className="text-left ml-4 text-purple-600 font-extrabold text-2xl my-4">Chirps</h1>
+      <h1 className="text-left ml-4 text-purple-600 font-extrabold text-2xl my-4">
+        Chirps
+      </h1>
 
       {/* Search bar */}
       <div className="px-4 mb-4">
@@ -388,19 +471,30 @@ export default function ChatList() {
           )
           .map((chat) => {
             const otherPic = chat.otherUserPic || null; // null triggers FaUser fallback
-            const otherPin = chat.otherUserPin || chat.otherUserEmail || "UNKNOWN";
-            const targetParam = encodeURIComponent(chat.otherUserEmail || chat.otherUserId || chat.id);
+            const otherPin =
+              chat.otherUserPin || chat.otherUserEmail || "UNKNOWN";
+            const targetParam = encodeURIComponent(
+              chat.otherUserEmail || chat.otherUserId || chat.id
+            );
             const rowRef = getRowRef(chat.id);
 
             // compute transform based on activeDrag or swipedId
             let translateX = 0;
             if (activeDrag?.id === chat.id) {
-              translateX = Math.min(activeDrag.delta, (rowRef?.current?.offsetWidth || window.innerWidth) * 0.9);
+              translateX = Math.min(
+                activeDrag.delta,
+                (rowRef?.current?.offsetWidth || window.innerWidth) * 0.9
+              );
             } else if (swipedId === chat.id) {
-              translateX = 84; // persistent reveal amount
+              translateX = 96; // persistent reveal amount to make space for two icons
             } else {
               translateX = 0;
             }
+
+            // when revealed, show both archive + delete buttons (left side)
+            const showActions =
+              (activeDrag?.id === chat.id && activeDrag.delta > 30) ||
+              swipedId === chat.id;
 
             return (
               <div
@@ -415,7 +509,23 @@ export default function ChatList() {
                   setActiveDrag(null);
                 }}
               >
-                {/* delete button - left side, visible when dragging/revealed */}
+                {/* Archive button (left side top) */}
+                <button
+                  aria-label="Archive conversation"
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    archiveConversation(chat.id);
+                  }}
+                  className={`absolute left-3 top-1/2 transform -translate-y-[120%] z-20 shadow text-white p-3 rounded-full transition-all duration-150 ${
+                    showActions
+                      ? "opacity-100 translate-y-[-0.75rem] bg-yellow-600"
+                      : "opacity-0 md:group-hover:opacity-100 bg-yellow-600"
+                  }`}
+                >
+                  <FiArchive className="w-4 h-4" />
+                </button>
+
+                {/* Delete button (left side bottom) */}
                 <button
                   aria-label="Delete conversation"
                   onClick={(ev) => {
@@ -423,10 +533,10 @@ export default function ChatList() {
                     setConfirmDeleteId(chat.id);
                     setSwipedId(null);
                   }}
-                  className={`absolute left-3 top-1/2 transform -translate-y-1/2 z-20 shadow text-white p-3 rounded-full transition-opacity duration-150 ${
-                    (activeDrag?.id === chat.id && activeDrag.delta > 20) || swipedId === chat.id
+                  className={`absolute left-3 top-1/2 transform translate-y-[8%] z-20 shadow text-white p-3 rounded-full transition-all duration-150 ${
+                    showActions
                       ? "opacity-100 bg-red-600"
-                      : "opacity-0 group-hover:opacity-100 bg-red-600"
+                      : "opacity-0 md:group-hover:opacity-100 bg-red-600"
                   }`}
                 >
                   <FaTrash />
@@ -457,7 +567,10 @@ export default function ChatList() {
                   className="flex items-center justify-between p-3 rounded-lg shadow-md bg-gray-50 hover:bg-purple-50 transition-all duration-150 cursor-pointer"
                   style={{
                     transform: `translateX(${translateX}px)`,
-                    transition: activeDrag?.id === chat.id ? "none" : "transform 160ms ease",
+                    transition:
+                      activeDrag?.id === chat.id
+                        ? "none"
+                        : "transform 160ms ease",
                   }}
                 >
                   <div className="flex items-center">
@@ -479,7 +592,9 @@ export default function ChatList() {
                       </p>
                     </div>
                   </div>
-                  <span className="text-xs text-gray-400">{formatTime(chat.lastMessageTime)}</span>
+                  <span className="text-xs text-gray-400">
+                    {formatTime(chat.lastMessageTime)}
+                  </span>
                 </div>
               </div>
             );
@@ -503,7 +618,8 @@ export default function ChatList() {
           >
             <h3 className="text-lg font-semibold mb-2">Delete conversation?</h3>
             <p className="text-sm text-gray-600 mb-4">
-              This will permanently delete the conversation and all messages. This cannot be undone.
+              This will permanently delete the conversation and all messages.
+              This cannot be undone.
             </p>
             <div className="flex justify-end gap-3">
               <button
@@ -539,7 +655,12 @@ export default function ChatList() {
         /* small fade in for the menu if needed */
         @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px);} to { opacity: 1; transform: translateY(0);} }
         .animate-fadeIn { animation: fadeIn 140ms ease both; }
+
+        /* Optional: Slightly larger touch targets on mobile for the action buttons */
+        @media (hover: none) and (pointer: coarse) {
+          .action-touch { padding: 12px; width: 46px; height: 46px; }
+        }
       `}</style>
- </div>
-);
+    </div>
+  );
 }
