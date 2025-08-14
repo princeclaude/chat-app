@@ -1,18 +1,35 @@
 // src/pages/Explore.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  getDoc,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { db } from "../firebase";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import BottomTab from "../components/BottomTab";
 import { FaUser } from "react-icons/fa";
+import { useProfile } from "../contexts/ProfileContext"; // to capture requester info if available
 
 export default function Explore() {
+  const { profile } = useProfile(); // may be undefined while loading
   const [pin, setPin] = useState("");
   const [userResult, setUserResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [searchTriggered, setSearchTriggered] = useState(false);
   const navigate = useNavigate();
+
+  // locked-account modal state
+  const [showLockedModal, setShowLockedModal] = useState(false);
+  const [lockedUser, setLockedUser] = useState(null);
+  const [requesting, setRequesting] = useState(false);
+  const [requestSent, setRequestSent] = useState(false);
 
   // store original viewport meta so we can restore it
   const originalViewportRef = useRef(null);
@@ -66,6 +83,27 @@ export default function Explore() {
     return "N/A";
   };
 
+  // helper: check whether a conversation exists between current user and otherUserId
+  const checkConversationExists = async (otherUserId) => {
+    try {
+      if (!profile?.email || !otherUserId) return false;
+      // get conversations that include current user and check participants client-side for otherUserId
+      const q = query(collection(db, "conversations"), where("participants", "array-contains", profile.email));
+      const snap = await getDocs(q);
+      if (snap.empty) return false;
+      for (const d of snap.docs) {
+        const data = d.data();
+        const participants = Array.isArray(data.participants) ? data.participants : [];
+        // documents may store user id/email; compare directly
+        if (participants.includes(otherUserId)) return true;
+      }
+      return false;
+    } catch (err) {
+      console.error("Failed to check conversation existence:", err);
+      return false;
+    }
+  };
+
   const handleSearch = async () => {
     if (pin.length !== 5) return;
     setLoading(true);
@@ -80,7 +118,11 @@ export default function Explore() {
       if (!snap.empty) {
         const docSnap = snap.docs[0];
         const userId = docSnap.id;
-        const baseUserData = docSnap.data();
+
+        // Re-fetch the user document directly to ensure we have the latest fields (accountPrivacy etc.)
+        const userDocRef = doc(db, "users", userId);
+        const freshUserSnap = await getDoc(userDocRef);
+        const baseUserData = freshUserSnap.exists() ? freshUserSnap.data() : docSnap.data();
 
         // Step 2: Get presence info from "currentUsers"
         const currentSnap = await getDoc(doc(db, "currentUsers", userId));
@@ -89,11 +131,15 @@ export default function Explore() {
           presenceData = currentSnap.data();
         }
 
-        // Merge both
+        // Step 3: determine whether a conversation already exists (important: only if we have current profile)
+        const hasConversation = await checkConversationExists(userId);
+
+        // Merge both and include hasConversation flag
         setUserResult({
           id: userId,
           ...baseUserData,
           ...presenceData, // this will include lastActive if present
+          hasConversation: !!hasConversation,
         });
       } else {
         setUserResult(null);
@@ -113,8 +159,80 @@ export default function Explore() {
     restoreZoom();
   };
 
+  // when user clicks the result row: check privacy (freshly) and whether a conversation exists
+  const handleResultClick = async (user) => {
+    try {
+      // re-fetch user's doc to ensure latest accountPrivacy
+      const userDocRef = doc(db, "users", user.id);
+      const fresh = await getDoc(userDocRef);
+      const freshData = fresh.exists() ? fresh.data() : {};
+      const accountPrivacy = (freshData.accountPrivacy || user.accountPrivacy || "").toString().toLowerCase();
+
+      // check conversation existence live (so if a conversation was created meanwhile, we continue)
+      const hasConversation = await checkConversationExists(user.id);
+
+      // if there is already a conversation, always allow navigation (continue)
+      if (hasConversation) {
+        navigate(`/chat/${encodeURIComponent(user.id)}`, {
+          state: { otherUser: { id: user.id, ...freshData, ...user } },
+        });
+        return;
+      }
+
+      // otherwise if the user's account is locked, show the request modal
+      if (accountPrivacy === "locked") {
+        setLockedUser({ id: user.id, ...freshData, ...user });
+        setShowLockedModal(true);
+        setRequestSent(false);
+        return;
+      }
+
+      // default: open chat
+      navigate(`/chat/${encodeURIComponent(user.id)}`, {
+        state: { otherUser: { id: user.id, ...freshData, ...user } },
+      });
+    } catch (err) {
+      console.error("Error on result click:", err);
+      // fallback to navigate if something goes wrong
+      try {
+        navigate(`/chat/${encodeURIComponent(user.id)}`, {
+          state: { otherUser: user },
+        });
+      } catch {}
+    }
+  };
+
+  // send an access request doc to Firestore
+  const sendAccessRequest = async () => {
+    if (!lockedUser) return;
+    setRequesting(true);
+    try {
+      await addDoc(collection(db, "accessRequests"), {
+        requesterEmail: profile?.email || null,
+        requesterPin: profile?.pin || null,
+        receiverId: lockedUser.id,
+        receiverPin: lockedUser.pin || null,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      });
+      setRequestSent(true);
+      // optionally auto-close after a short delay
+      setTimeout(() => {
+        setShowLockedModal(false);
+        setLockedUser(null);
+        setRequesting(false);
+      }, 1400);
+    } catch (err) {
+      console.error("Failed to create access request:", err);
+      setRequesting(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-white text-black p-4" style={{ WebkitTextSizeAdjust: "100%", MsTextSizeAdjust: "100%" }}>
+    <div
+      className="flex flex-col h-screen bg-white text-black p-4"
+      style={{ WebkitTextSizeAdjust: "100%", MsTextSizeAdjust: "100%" }}
+    >
       {/* Page Title */}
       <motion.h1
         initial={{ opacity: 0, y: -10 }}
@@ -186,11 +304,7 @@ export default function Explore() {
               exit={{ opacity: 0, y: -15 }}
               whileHover={{ scale: 1.02 }}
               className="flex items-center gap-3 p-3 bg-gray-100 rounded-lg shadow-sm hover:bg-gray-200 transition cursor-pointer"
-              onClick={() =>
-                navigate(`/chat/${encodeURIComponent(userResult.id)}`, {
-                  state: { otherUser: userResult },
-                })
-              }
+              onClick={() => handleResultClick(userResult)}
             >
               {/* fallback to FaUser when no profilePic */}
               {userResult.profilePic ? (
@@ -210,6 +324,17 @@ export default function Explore() {
                 <p className="text-sm text-gray-500">
                   Last active: {formatLastActive(userResult.lastActive)}
                 </p>
+                {userResult.accountPrivacy && (
+                  <p className="text-xs mt-1">
+                    <strong>Privacy:</strong>{" "}
+                    {String(userResult.accountPrivacy)}
+                  </p>
+                )}
+
+                {/* helpful hint if a conversation already exists */}
+                {userResult.hasConversation && (
+                  <p className="text-xs text-green-600 mt-1">You already have a conversation with this user — tap to continue.</p>
+                )}
               </div>
             </motion.div>
           )}
@@ -229,9 +354,97 @@ export default function Explore() {
       </div>
 
       {/* Bottom Tab */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
-        <BottomTab />
-      </div>
+      {!showLockedModal && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
+          <BottomTab />
+        </div>
+      )}
+
+      {/* Locked-account bottom modal (AnimatePresence + framer-motion) */}
+      <AnimatePresence>
+        {showLockedModal && lockedUser && (
+          <>
+            {/* backdrop */}
+            <motion.div
+              key="locked-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.35 }}
+              exit={{ opacity: 0 }}
+              onClick={() => {
+                setShowLockedModal(false);
+                setLockedUser(null);
+              }}
+              className="fixed inset-0 bg-black z-50"
+            />
+
+            {/* bottom sheet */}
+            <motion.div
+              key="locked-sheet"
+              initial={{ y: 300, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 300, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 320, damping: 30 }}
+              className="fixed left-0 right-0 bottom-0 z-60 bg-white rounded-t-xl shadow-xl p-5"
+              style={{ maxWidth: 800, margin: "0 auto" }}
+            >
+              <div className="mx-auto max-w-lg text-center">
+                <div className="w-12 h-12 rounded-full bg-purple-50 mx-auto flex items-center justify-center mb-4">
+                  {userResult.profilePic ? (
+                    <img
+                      src={userResult.profilePic}
+                      alt="profile"
+                      className="w-12 h-12 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-gray-100 flex border-2 border-purple-700 items-center justify-center">
+                      <FaUser className="text-purple-500" />
+                    </div>
+                  )}
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                  This user has locked their account!
+                </h3>
+                <p className="text-sm text-gray-500 mb-6">
+                  {lockedUser.pin ? `${lockedUser.pin}` : "This user"} is not
+                  accepting direct chats right now. You can send a request to
+                  ask for access.
+                </p>
+
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={() => {
+                      setShowLockedModal(false);
+                      setLockedUser(null);
+                    }}
+                    className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700"
+                    disabled={requesting}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    onClick={sendAccessRequest}
+                    className="px-4 py-2 rounded-lg bg-purple-600 text-white disabled:opacity-60"
+                    disabled={requesting || requestSent}
+                  >
+                    {requesting
+                      ? "Requesting..."
+                      : requestSent
+                      ? "Requested ✓"
+                      : "Request"}
+                  </button>
+                </div>
+
+                {requestSent && (
+                  <p className="text-xs text-green-600 mt-3">
+                    Request sent — the user will be notified.
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
  </div>
 );
 }

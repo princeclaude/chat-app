@@ -21,10 +21,11 @@ import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
 import { FiMoreVertical, FiRefreshCw, FiSearch, FiArchive } from "react-icons/fi";
-import { FaUser, FaTrash } from "react-icons/fa";
+import { FaUser, FaTrash, FaFile, FaShare, FaLock, FaLockOpen, FaScroll, FaInfo , FaEnvelopeOpen} from "react-icons/fa";
 import BottomTab from "../components/BottomTab";
 import { useProfile } from "../contexts/ProfileContext";
 import { FaTimes } from "react-icons/fa";
+import ConversationRow from "../components/ConversationRow";
 
 dayjs.extend(relativeTime);
 
@@ -40,12 +41,102 @@ export default function ChatList() {
   const navigate = useNavigate();
   const userCacheRef = useRef(new Map()); 
   const [archivedCount, setArchivedCount] = useState(0);
+  const [accountPrivacy, setAccountPrivacy] = useState(profile?.accountPrivacy || "unlocked")
+
+
+  useEffect(() => {
+    setAccountPrivacy(profile?.accountPrivacy || "unlocked");
+  }, [profile?.accountPrivacy]);
+
+  // toggle account privacy in Firestore (optimistic UI)
+  const toggleAccountPrivacy = async () => {
+    if (!profile?.email) return;
+    const prev = accountPrivacy;
+    const next = prev === "locked" ? "unlocked" : "locked";
+
+    // optimistic UI
+    setAccountPrivacy(next);
+
+    try {
+      await updateDoc(doc(db, "users", profile.email), {
+        accountPrivacy: next,
+        updatedAt: serverTimestamp(),
+      });
+    } catch (err) {
+      console.error("Failed to update account privacy:", err);
+      // revert UI on failure
+      setAccountPrivacy(prev);
+    } finally {
+      // close the menu so user sees immediate feedback
+      setShowMenu(false);
+    }
+  };
+
 
   // pointer / drag state
   const pointerStartXRef = useRef(null);
   const activePointerIdRef = useRef(null);
   const [activeDrag, setActiveDrag] = useState(null); // { id, delta }
   const [swipedId, setSwipedId] = useState(null); // persistent partial swipe reveal
+
+  // long-press state/refs (for mobile)
+  const longPressTimerRef = useRef(null);
+  const longPressStartYRef = useRef(0);
+  const longPressMovedRef = useRef(false);
+  const [actionModalFor, setActionModalFor] = useState(null); // conversation id for long-press actions
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressMovedRef.current = false;
+    longPressStartYRef.current = 0;
+  };
+
+  const startLongPress = (e, id) => {
+    // Only start long-press for touch inputs (avoid desktop mouse long-press)
+    const isTouchPointer =
+      // PointerEvent (React) will have pointerType
+      (e.pointerType && e.pointerType === "touch") ||
+      // fallback for touchstart (if any)
+      (e.touches && e.touches[0]);
+
+    if (!isTouchPointer) return;
+
+    longPressMovedRef.current = false;
+    longPressStartYRef.current = e.clientY ?? (e.touches?.[0]?.clientY ?? 0);
+
+    // 600ms long press
+    longPressTimerRef.current = setTimeout(() => {
+      if (!longPressMovedRef.current) {
+        // open action modal for this conversation
+        setActionModalFor(id);
+        // cancel any active drag state
+        pointerStartXRef.current = null;
+        activePointerIdRef.current = null;
+        setActiveDrag(null);
+        setSwipedId(null);
+      }
+      longPressTimerRef.current = null;
+    }, 600);
+  };
+
+  const moveLongPress = (e) => {
+    // If long-press not started, nothing to do.
+    if (!longPressTimerRef.current) return;
+
+    const currentY = e.clientY ?? (e.touches?.[0]?.clientY ?? null);
+    if (currentY == null) return;
+    if (Math.abs(currentY - longPressStartYRef.current) > 10) {
+      longPressMovedRef.current = true;
+      clearLongPressTimer();
+    }
+  };
+
+  const endLongPress = () => {
+    clearLongPressTimer();
+  };
 
   const closeModal = () => {
     setIsClosing(true);
@@ -276,9 +367,15 @@ export default function ChatList() {
 
     // Make sure we're not leaving stale drag state
     setActiveDrag({ id, delta: 0 });
+
+    // Start long press only for touch pointers
+    startLongPress(e, id);
   };
 
   const handlePointerMove = (e, id, rowRef) => {
+    // move long-press detection if applicable
+    moveLongPress(e);
+
     if (activePointerIdRef.current !== id) return;
     const startX = pointerStartXRef.current;
     if (startX == null) return;
@@ -290,10 +387,20 @@ export default function ChatList() {
     // limit delta so row doesn't fly away
     const maxDelta = (rowRef?.current?.offsetWidth || window.innerWidth) * 0.9;
     if (delta > maxDelta) delta = maxDelta;
+
+    // if user starts dragging, cancel long press
+    if (Math.abs(delta) > 8) {
+      longPressMovedRef.current = true;
+      clearLongPressTimer();
+    }
+
     setActiveDrag({ id, delta });
   };
 
   const handlePointerUp = (e, id, rowRef) => {
+    // always clear long-press timer when pointer is lifted
+    endLongPress();
+
     const active = activeDrag;
     pointerStartXRef.current = null;
     activePointerIdRef.current = null;
@@ -400,14 +507,33 @@ export default function ChatList() {
       {/* Action menu modal */}
       {showMenu && (
         <div className="absolute top-14 right-4 bg-white rounded-lg shadow-lg p-3 w-44 z-50 animate-fadeIn">
-          <button className="w-full text-left px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
-            📞 Call
+          <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
+            <FaFile />
+            Report
           </button>
-          <button className="w-full text-left px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
-            📤 Share
+
+          <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
+            <FaShare />
+            Share
           </button>
-          <button className="w-full text-left px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
-            ⚙ Settings
+          <button
+            onClick={toggleAccountPrivacy}
+            className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2"
+          >
+            {accountPrivacy === "locked" ? <FaLockOpen /> : <FaLock />}
+            {accountPrivacy === "locked" ? "Unlock Account" : "Lock Account"}
+          </button>
+          <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
+            <FaScroll />
+            Privacy Policy
+          </button>
+          <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
+            <FaInfo />
+            About Us
+          </button>
+          <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
+            <FaEnvelopeOpen />
+            Contact Us
           </button>
         </div>
       )}
@@ -507,6 +633,7 @@ export default function ChatList() {
                   pointerStartXRef.current = null;
                   activePointerIdRef.current = null;
                   setActiveDrag(null);
+                  endLongPress();
                 }}
               >
                 {/* Archive button (left side top) */}
@@ -550,6 +677,10 @@ export default function ChatList() {
                   }}
                   onClick={() => {
                     // if currently revealed, dismiss on click; else navigate
+                    if (actionModalFor === chat.id) {
+                      // if action modal is open for this id, don't navigate
+                      return;
+                    }
                     if (swipedId === chat.id) {
                       setSwipedId(null);
                       return;
@@ -564,6 +695,9 @@ export default function ChatList() {
                       },
                     });
                   }}
+                  // Also add touch move/end events to manage long-press correctly (extra safety)
+                  onTouchMove={(e) => moveLongPress(e)}
+                  onTouchEnd={() => endLongPress()}
                   className="flex items-center justify-between p-3 rounded-lg shadow-md bg-gray-50 hover:bg-purple-50 transition-all duration-150 cursor-pointer"
                   style={{
                     transform: `translateX(${translateX}px)`,
@@ -602,9 +736,11 @@ export default function ChatList() {
       </div>
 
       {/* Bottom Tab */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
-        <BottomTab />
-      </div>
+      {!actionModalFor && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-white border-t border-gray-200">
+          <BottomTab />
+        </div>
+      )}
 
       {/* Confirm delete modal */}
       {confirmDeleteId && (
@@ -632,6 +768,68 @@ export default function ChatList() {
                 className="px-4 py-2 rounded-lg bg-red-600 text-white"
                 onClick={() => deleteConversationWithMessages(confirmDeleteId)}
               >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Long-press action modal (mobile) */}
+      {actionModalFor && (
+        <div
+          className="fixed inset-0 z-70 flex items-end justify-center"
+          onClick={() => {
+            // clicking backdrop closes modal
+            setActionModalFor(null);
+          }}
+        >
+          {/* semi-transparent backdrop */}
+          <div className="absolute inset-0 bg-black/40" />
+
+          {/* bottom action sheet */}
+          <div
+            className="relative w-full max-w-md bg-white rounded-t-xl shadow-xl p-4 z-80"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="font-semibold">Conversation actions</p>
+                <p className="text-xs text-gray-500">
+                  Archive or delete this conversation
+                </p>
+              </div>
+              <button
+                className="text-gray-500"
+                onClick={() => {
+                  setActionModalFor(null);
+                }}
+              >
+                <FaTimes />
+              </button>
+            </div>
+
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => {
+                  archiveConversation(actionModalFor);
+                  setActionModalFor(null);
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-500 text-white"
+              >
+                <FiArchive />
+                Archive
+              </button>
+
+              <button
+                onClick={() => {
+                  // open confirm delete so user still confirms delete
+                  setConfirmDeleteId(actionModalFor);
+                  setActionModalFor(null);
+                }}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white"
+              >
+                <FaTrash />
                 Delete
               </button>
             </div>

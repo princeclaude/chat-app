@@ -60,6 +60,7 @@ export const ProfileProvider = ({ children }) => {
         email,
         pin,
         verified: false,
+        accountPrivacy: "unlocked",
         createdAt: serverTimestamp(),
       });
 
@@ -137,7 +138,7 @@ export const ProfileProvider = ({ children }) => {
     }
   };
 
-  // 🔄 Auto-login listener
+  
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);

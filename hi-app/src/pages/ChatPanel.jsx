@@ -785,7 +785,7 @@ export default function ChatPanel() {
                     : "text-gray-600 font-bold"
                 }`}
               >
-                {isOnline ? "Active" : "Inactive"}
+                {isOnline ? "Active" : "In-active"}
               </div>
             </div>
           </div>
@@ -989,7 +989,7 @@ export default function ChatPanel() {
       {/* Profile image modal */}
       {showPicModal && otherUser?.profilePic && (
         <div
-          className="fixed inset-0 z-60 flex items-center justify-center bg-black/60"
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm"
           onClick={closePicModal}
         >
           <div
@@ -999,7 +999,7 @@ export default function ChatPanel() {
             <button
               aria-label="Close"
               onClick={closePicModal}
-              className="absolute top-3 right-3 z-70 text-white text-lg  bg-black/30 rounded-full p-1"
+              className="absolute top-3 right-3 z-70 text-purple-600 text-lg w-10 h-10 bg-purple-200 rounded-full p-1 "
             >
               ✕
             </button>

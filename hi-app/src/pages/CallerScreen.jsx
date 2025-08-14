@@ -36,7 +36,7 @@ export default function CallerScreen() {
           receiverPin,
           participants: [state?.callerPin || "unknown", receiverPin],
           status: "outgoing", // start as outgoing
-          timestamp: serverTimestamp()
+          timestamp: serverTimestamp(),
         });
         setCallId(docRef.id);
       } catch (err) {
@@ -101,6 +101,28 @@ export default function CallerScreen() {
     };
   }, []);
 
+  // Auto-end after 30 seconds if still ringing
+  useEffect(() => {
+    if (callStatus === "ringing" && callId) {
+      const timer = setTimeout(() => {
+        // If still ringing after 30s, mark as missed
+        updateDoc(doc(db, "calls", callId), {
+          status: "missed",
+          endedAt: serverTimestamp(),
+        })
+          .then(() => {
+            if (audioRef.current) {
+              audioRef.current.pause();
+            }
+            navigate(-1);
+          })
+          .catch((err) => console.error("Failed to auto-end call:", err));
+      }, 30000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [callStatus, callId, navigate]);
+
   const toggleSpeaker = () => setSpeakerOn((prev) => !prev);
 
   const endCall = () => {
@@ -110,7 +132,7 @@ export default function CallerScreen() {
     if (callId) {
       // If never accepted, mark as missed
       updateDoc(doc(db, "calls", callId), {
-        status: callStatus === "ringing" ? "missed" : "ended"
+        status: callStatus === "ringing" ? "missed" : "ended",
       });
     }
     navigate(-1);
@@ -124,7 +146,7 @@ export default function CallerScreen() {
           <img
             src={receiver.profilePic}
             alt="Receiver"
-            className="w-full h-full object-cover animate-scale-loop"
+            className="w-28 h-28 object-cover animate-scale-loop"
           />
         ) : (
           <FaUser className="text-5xl text-gray-300 animate-scale-loop" />
@@ -157,6 +179,6 @@ export default function CallerScreen() {
           <FaPhoneSlash className="text-xl" />
         </button>
       </div>
- </div>
-);
+    </div>
+  );
 }
