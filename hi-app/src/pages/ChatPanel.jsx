@@ -69,6 +69,32 @@ export default function ChatPanel() {
   const receiveSoundRef = useRef(new Audio("/sounds/receive.mp3"));
   const presenceHeartbeatRef = useRef(null);
 
+  // touch helpers to detect an intentional tap (mobile)
+  const touchStartRef = useRef({});
+
+  const handleTouchStart = (e, id) => {
+    const t = e.touches?.[0];
+    if (!t) return;
+    touchStartRef.current[id] = { x: t.clientX, y: t.clientY, t: Date.now() };
+  };
+
+  const handleTouchEnd = (e, message) => {
+    const t = e.changedTouches?.[0];
+    if (!t) return;
+    const start = touchStartRef.current[message.id] || {};
+    const dx = Math.abs((start.x || 0) - t.clientX);
+    const dy = Math.abs((start.y || 0) - t.clientY);
+    const dt = Date.now() - (start.t || 0);
+
+    // treat as tap if small movement and reasonably quick
+    if (dx < 12 && dy < 12 && dt < 700) {
+      // call the same handler as mouse click, using the event so currentTarget is available
+      handleBubbleClick(e, message);
+    }
+
+    delete touchStartRef.current[message.id];
+  };
+
   const [actionModal, setActionModal] = useState({
     show: false,
     x: 0,
@@ -78,7 +104,10 @@ export default function ChatPanel() {
 
   // handle bubble click
   const handleBubbleClick = (e, message) => {
-    e.stopPropagation();
+    // prevent page-level handlers from interfering
+    try {
+      e.stopPropagation();
+    } catch (err) {}
 
     // If modal is already showing for this message, hide it
     if (actionModal.show && actionModal.message?.id === message.id) {
@@ -86,35 +115,70 @@ export default function ChatPanel() {
       return;
     }
 
-    const rect = e.currentTarget.getBoundingClientRect();
-    const modalWidth = 150; // approximate width of modal
-    const modalHeight = 300; // approximate height of modal
+    // get the bounding rect in a safe way (touchend and click both provide currentTarget)
+    const targetEl = e.currentTarget || e.target;
+    if (!targetEl || !targetEl.getBoundingClientRect) {
+      // fallback: show modal centered
+      const centerX = Math.round(window.innerWidth / 2 - 80);
+      const centerY = Math.round(window.innerHeight / 2 - 150);
+      setActionModal({
+        show: true,
+        x: Math.max(8, centerX),
+        y: Math.max(8, centerY),
+        message,
+      });
+      return;
+    }
+
+    const rect = targetEl.getBoundingClientRect();
+
+    const modalWidth = 180; // slightly bigger for buttons
+    const modalHeight = 260; // safe height
+    const padding = 8;
     const screenWidth = window.innerWidth;
     const screenHeight = window.innerHeight;
 
-    let x, y;
-
-    // Horizontal positioning
-    if (rect.right + modalWidth + 8 > screenWidth) {
-      x = rect.left - modalWidth - 8; // place left
+    // decide horizontal placement: prefer right of bubble, else left, else center
+    let x;
+    const spaceRight = screenWidth - rect.right;
+    const spaceLeft = rect.left;
+    if (spaceRight >= modalWidth + padding) {
+      x = rect.right + padding;
+    } else if (spaceLeft >= modalWidth + padding) {
+      x = Math.max(padding, rect.left - modalWidth - padding);
     } else {
-      x = rect.right + 8; // place right
+      // not enough space on either side — center near bubble but clamp inside viewport
+      x = Math.min(
+        Math.max(rect.left + rect.width / 2 - modalWidth / 2, padding),
+        screenWidth - modalWidth - padding
+      );
     }
 
-    // Vertical positioning
-    if (rect.top + modalHeight > screenHeight) {
-      y = screenHeight - modalHeight - 8;
+    // vertical placement: try to align top with bubble; if not fit, shift up/down; ensure visible above keyboard
+    let y = rect.top;
+    // if bubble is too low and modal would overflow bottom, try position above bubble
+    if (rect.top + modalHeight + padding > screenHeight) {
+      // try to place above the bubble
+      if (rect.top - modalHeight - padding >= 0) {
+        y = rect.top - modalHeight - padding;
+      } else {
+        // still not enough space: clamp inside viewport with small margin
+        y = Math.max(padding, screenHeight - modalHeight - padding);
+      }
     } else {
-      y = rect.top;
+      // enough space below — but ensure not too close to top
+      y = Math.max(padding, rect.top);
     }
 
     setActionModal({
       show: true,
-      x,
-      y,
+      x: Math.round(x),
+      y: Math.round(y),
       message,
     });
   };
+
+
 
   const closeActionModal = () =>
     setActionModal({ show: false, x: 0, y: 0, message: null });
@@ -196,8 +260,6 @@ export default function ChatPanel() {
     }
   };
 
-  
-
   const handleReply = (message) => {
     // message should be the message object (include id)
     if (!message) return;
@@ -214,7 +276,6 @@ export default function ChatPanel() {
       if (el) el.focus();
     }, 50);
   };
-
 
   const handleCopy = () => {
     navigator.clipboard.writeText(actionModal.message.text || "");
@@ -492,56 +553,55 @@ export default function ChatPanel() {
     );
   };
 
- const handleSend = async () => {
-   
-   if (!convoId || !currentEmail) return;
-   if (!messageText.trim() && !replyTo && !isUploading) return; // nothing to send
+  const handleSend = async () => {
+    if (!convoId || !currentEmail) return;
+    if (!messageText.trim() && !replyTo && !isUploading) return; // nothing to send
 
-   try {
-     const msg = {
-       sender: currentEmail,
-       text: messageText.trim() || "", // empty string allowed when replying only
-       createdAt: serverTimestamp(),
-       status: "sent",
-     };
+    try {
+      const msg = {
+        sender: currentEmail,
+        text: messageText.trim() || "", // empty string allowed when replying only
+        createdAt: serverTimestamp(),
+        status: "sent",
+      };
 
-     // attach reply metadata if present
-     if (replyTo) {
-       // Keep this a plain object (no Firestore refs) so it serializes cleanly
-       msg.replyTo = {
-         id: replyTo.id,
-         sender: replyTo.sender,
-         text: replyTo.text || null,
-         imageThumbUrl: replyTo.imageThumbUrl || null,
-       };
-     }
+      // attach reply metadata if present
+      if (replyTo) {
+        // Keep this a plain object (no Firestore refs) so it serializes cleanly
+        msg.replyTo = {
+          id: replyTo.id,
+          sender: replyTo.sender,
+          text: replyTo.text || null,
+          imageThumbUrl: replyTo.imageThumbUrl || null,
+        };
+      }
 
-     // If you're supporting image only sends, you would also attach image fields here
-     // e.g. if (pendingImage) msg.imageThumbUrl = pendingImage.thumbUrl
+      // If you're supporting image only sends, you would also attach image fields here
+      // e.g. if (pendingImage) msg.imageThumbUrl = pendingImage.thumbUrl
 
-     // write to Firestore
-     await addDoc(collection(db, "conversations", convoId, "messages"), msg);
-     sendSoundRef.current.play().catch(() => {});
+      // write to Firestore
+      await addDoc(collection(db, "conversations", convoId, "messages"), msg);
+      sendSoundRef.current.play().catch(() => {});
 
-     // update conversation metadata
-     await updateDoc(doc(db, "conversations", convoId), {
-       lastMessage: msg.text || "📷 Photo",
-       lastMessageTime: serverTimestamp(),
-       updatedAt: serverTimestamp(),
-     });
+      // update conversation metadata
+      await updateDoc(doc(db, "conversations", convoId), {
+        lastMessage: msg.text || "📷 Photo",
+        lastMessageTime: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
 
-     // clear composer + reply preview after successful send
-     setMessageText("");
-     setReplyTo(null);
-     await updateTypingStatus(false);
-   } catch (err) {
-     console.error("send message error:", err);
-     showToast?.("Failed to send message", "error", 2000);
-   } finally {
-     // ensure uploading flag is reset in any case
-     setIsUploading(false);
-   }
- };
+      // clear composer + reply preview after successful send
+      setMessageText("");
+      setReplyTo(null);
+      await updateTypingStatus(false);
+    } catch (err) {
+      console.error("send message error:", err);
+      showToast?.("Failed to send message", "error", 2000);
+    } finally {
+      // ensure uploading flag is reset in any case
+      setIsUploading(false);
+    }
+  };
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -551,7 +611,7 @@ export default function ChatPanel() {
 
   const cancelReply = () => {
     setReplyTo(null);
-  }
+  };
 
   const handleChange = (e) => {
     setMessageText(e.target.value);
@@ -571,43 +631,6 @@ export default function ChatPanel() {
       default:
         return null;
     }
-  };
-
-  // upload blob to Uploadcare and return file url
-  const uploadToUploadcare = async (blob) => {
-    if (
-      !UPLOADCARE_PUB_KEY ||
-      UPLOADCARE_PUB_KEY === "YOUR_UPLOADCARE_PUBLIC_KEY"
-    ) {
-      throw new Error(
-        "Uploadcare public key not set. Set REACT_APP_UPLOADCARE_PUBLIC_KEY in .env"
-      );
-    }
-    const fd = new FormData();
-    fd.append("UPLOADCARE_PUB_KEY", UPLOADCARE_PUB_KEY);
-    fd.append("UPLOADCARE_STORE", "1"); // store immediately
-    // Uploadcare expects a File object to set filename; convert blob to File
-    const file = new File(
-      [blob],
-      `upload_${Date.now()}.jpg, { type: "image/jpeg" }`
-    );
-    fd.append("file", file);
-
-    const res = await fetch("https://upload.uploadcare.com/base/", {
-      method: "POST",
-      body: fd,
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error("Uploadcare upload failed: " + txt);
-    }
-    const json = await res.json();
-    // json.file typically contains the CDN url like "https://ucarecdn.com/<uuid>/" or file field with uuid
-    // Construct CDN url if necessary
-    if (json.file) return json.file;
-    if (json.file_id) return `https://ucarecdn.com/${json.file_id}/`;
-    // fallback: stringify
-    return String(json);
   };
 
   // hidden file input click
@@ -801,9 +824,16 @@ export default function ChatPanel() {
             </button>
 
             <FaBullhorn className="text-xl" />
-            <button onClick={() => navigate(`/callerscreen/${encodeURIComponent(otherUser?.pin || otherUser?.email)}`,
-              {state: {receiver: {profilleImage: otherUser?.profile}}}
-            )}>
+            <button
+              onClick={() =>
+                navigate(
+                  `/callerscreen/${encodeURIComponent(
+                    otherUser?.pin || otherUser?.email
+                  )}`,
+                  { state: { receiver: { profilleImage: otherUser?.profile } } }
+                )
+              }
+            >
               <FaPhoneAlt className="text-xl" />
             </button>
           </div>
@@ -841,6 +871,8 @@ export default function ChatPanel() {
             >
               <div
                 onClick={(e) => handleBubbleClick(e, m)}
+                onTouchStart={(e) => handleTouchStart(e, m.id)}
+                onTouchEnd={(e) => handleTouchEnd(e, m)}
                 className={`no-select-touch relative px-4 py-2 rounded-2xl max-w-[70%] animate-pop shadow-sm ${
                   isMe
                     ? "bg-gradient-to-br from-purple-700 to-purple-600 text-white rounded-br-none"
@@ -1071,6 +1103,23 @@ export default function ChatPanel() {
 }
 .animate-slide-in {
   animation: slideIn 200ms ease-out forwards;
+}
+
+ .msg-action-modal {
+  pointer-events: auto;
+  max-height: calc(100vh - 48px); /* leave some margin for status bar / keyboard */
+  overflow-y: auto;
+  box-sizing: border-box;
+  width: 180px; /* match modalWidth used in positioning */
+}
+
+/* make bubbles more responsive on mobile */
+.no-select-touch {
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
       `}</style>
     </div>
