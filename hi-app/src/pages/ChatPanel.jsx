@@ -19,7 +19,7 @@ import {
 import { db } from "../firebase";
 import { useProfile } from "../contexts/ProfileContext";
 import {
-  FaArrowLeft,
+  
   FaPhoneAlt,
   FaPaperclip,
   FaPaperPlane,
@@ -28,7 +28,8 @@ import {
   FaUser,
   FaWhatsapp,
   FaReply, 
-  FaTrash, FaCopy,FaEdit, FaShare
+  FaTrash, FaCopy,FaEdit, FaShare,
+  FaChevronLeft
 } from "react-icons/fa";
 import { BsCheck, BsCheckAll } from "react-icons/bs";
 import dayjs from "dayjs";
@@ -753,7 +754,7 @@ export default function ChatPanel() {
         <div className="flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
             <button onClick={() => navigate(-1)} className="pr-1">
-              <FaArrowLeft className="text-lg text-purple-700" />
+              <FaChevronLeft className="text-lg text-purple-700" />
             </button>
 
             <button
@@ -840,7 +841,7 @@ export default function ChatPanel() {
             >
               <div
                 onClick={(e) => handleBubbleClick(e, m)}
-                className={`relative px-4 py-2 rounded-2xl max-w-[70%] animate-pop shadow-sm ${
+                className={`no-select-touch relative px-4 py-2 rounded-2xl max-w-[70%] animate-pop shadow-sm ${
                   isMe
                     ? "bg-gradient-to-br from-purple-700 to-purple-600 text-white rounded-br-none"
                     : "bg-purple-500 text-white rounded-bl-none"

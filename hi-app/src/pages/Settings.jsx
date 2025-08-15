@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import BottomTab from "../components/BottomTab";
+
 import { db, auth } from "../firebase";
 import {
   collection,
@@ -15,6 +15,8 @@ import {
 import { useSettings } from "../contexts/SettingsContext";
 import { useNavigate } from "react-router-dom";
 import { useToast } from "../contexts/ToastContext";
+import { FaChevronLeft } from "react-icons/fa";
+import { updateProfile as updateAuthProfile } from "firebase/auth";
 
 export default function Settings() {
   const {
@@ -27,16 +29,35 @@ export default function Settings() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  // number should be a string for controlled input
+  
   const [number, setNumber] = useState("");
   const [profilePicFile, setProfilePicFile] = useState(null);
   const [persistedPic, setPersistedPic] = useState(null);
   const [pin, setPin] = useState(null);
   const [loading, setLoading] = useState(true);
   const [savingNumber, setSavingNumber] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // upload progress states
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const progressTimerRef = useRef(null);
 
   const navigate = useNavigate();
   const { showToast } = useToast();
+
+  useEffect(() => {
+    if (!profilePicFile) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(profilePicFile);
+    setPreviewUrl(url);
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [profilePicFile]);
 
   // Real-time user data
   useEffect(() => {
@@ -67,24 +88,75 @@ export default function Settings() {
     navigate("/");
   };
 
+  // ---- NEW: helper to animate progress toward 90% while upload is ongoing ----
+  const startFakeProgress = () => {
+    clearInterval(progressTimerRef.current);
+    // start small
+    setUploadProgress(4);
+    progressTimerRef.current = setInterval(() => {
+      setUploadProgress((p) => {
+        // nudge toward 90%, with slightly random increments for natural feeling
+        if (p >= 90) return 90;
+        const inc = Math.random() * 6 + 1; // 1 - 7
+        return Math.min(90, Math.round((p + inc) * 10) / 10);
+      });
+    }, 360);
+  };
+
+  const stopFakeProgress = () => {
+    if (progressTimerRef.current) {
+      clearInterval(progressTimerRef.current);
+      progressTimerRef.current = null;
+    }
+  };
+
+  // handlePicUpload now shows progress UI while calling updateProfilePic
   const handlePicUpload = async () => {
     if (!profilePicFile) return;
 
-    const uploadedUrl = await updateProfilePic(profilePicFile);
+    setIsUploadingPhoto(true);
+    setUploadProgress(0);
+    startFakeProgress();
 
-    const q = query(
-      collection(db, "users"),
-      where("email", "==", auth.currentUser.email.toLowerCase())
-    );
+    try {
+      // call your existing upload helper (this may be using Firebase Storage, S3, Uploadcare, etc.)
+      const uploadedUrl = await updateProfilePic(profilePicFile);
+      
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      if (!snapshot.empty) {
-        const userRef = doc(db, "users", snapshot.docs[0].id);
-        updateDoc(userRef, { profilePic: uploadedUrl });
+      // stop the fake progress and animate to 100%
+      stopFakeProgress();
+      setUploadProgress(100);
+
+      // small delay so user sees the finished state
+      await new Promise((res) => setTimeout(res, 350));
+
+      // update the user doc with the returned URL
+      const q = query(
+        collection(db, "users"),
+        where("email", "==", auth.currentUser.email.toLowerCase())
+      );
+
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const userRef = doc(db, "users", snap.docs[0].id);
+        await updateDoc(userRef, { profilePic: uploadedUrl, updatedAt: serverTimestamp() });
+        setPersistedPic(uploadedUrl); // show new image immediately
       }
-    });
 
-    unsubscribe(); // immediately unsubscribe to avoid memory leak
+      // success toast
+      if (typeof showToast === "function") showToast("Profile picture uploaded", "success");
+    } catch (err) {
+      console.error("Image upload error:", err);
+      stopFakeProgress();
+      setUploadProgress(0);
+      if (typeof showToast === "function") console.log("Failed to upload profile picture", "error");
+    } finally {
+      // cleanup UI state after small delay so animation feels smooth
+      setTimeout(() => {
+        setIsUploadingPhoto(false);
+        setUploadProgress(0);
+      }, 400);
+    }
   };
 
   // Helper: normalize Nigerian phone to E.164 (+234XXXXXXXXXX)
@@ -209,6 +281,9 @@ export default function Settings() {
       animate={{ opacity: 1, y: 0 }}
       className="p-4 space-y-6 bg-white text-black min-h-screen"
     >
+      <button onClick={() => navigate(-1)}>
+        <FaChevronLeft size={24} className="text-purple-600 ml-1" />
+      </button>
       {/* Profile Section */}
       <div className="flex flex-col items-center space-y-2">
         {persistedPic ? (
@@ -223,22 +298,111 @@ export default function Settings() {
           </div>
         )}
 
-        <strong className="text-lg text-purple-700 font-bold">
-          {pin || ""}
-        </strong>
+        <strong className="text-lg text-purple-700 font-bold">{pin || ""}</strong>
 
-        <input
-          type="file"
-          accept="image/*"
-          onChange={(e) => setProfilePicFile(e.target.files[0])}
-          className="sm:ml-2 bg-purple-500 rounded-sm text-white"
-        />
-        <button
-          onClick={handlePicUpload}
-          className="bg-purple-600 text-white px-4 py-1 rounded"
-        >
-          Upload Profile Picture
-        </button>
+        {/* File picker (styled) */}
+        <div className="w-full flex flex-col items-center gap-3 mt-2">
+          {/* Hidden native file input */}
+          <input
+            id="profile-pic-input"
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0] || null;
+              setProfilePicFile(f);
+            }}
+          />
+
+          {/* Styled picker (click opens native picker) */}
+          <label
+            htmlFor="profile-pic-input"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                fileInputRef.current?.click();
+              }
+            }}
+            className="w-full max-w-xs mx-auto cursor-pointer rounded-xl border-2 border-dashed border-purple-200 p-4 flex flex-col items-center justify-center gap-2 text-center bg-white shadow-sm hover:border-purple-300 focus:outline-none focus:ring-2 focus:ring-purple-200 relative"
+            role="button"
+            tabIndex={0}
+            aria-label="Select an image"
+          >
+            <div className="relative">
+              {previewUrl || persistedPic ? (
+                <img
+                  src={previewUrl || persistedPic}
+                  alt="Selected preview"
+                  className="w-28 h-28 object-cover rounded-full border-2 border-purple-100 shadow-sm"
+                />
+              ) : (
+                <div className="w-28 h-28 rounded-full bg-purple-50 flex items-center justify-center text-purple-400 text-2xl shadow-inner">
+                  📷
+                </div>
+              )}
+
+              {/* Upload overlay (shows only while uploading) */}
+              {isUploadingPhoto && (
+                <div className="absolute inset-0 rounded-full flex flex-col items-center justify-center bg-black/40">
+                  <div className="flex flex-col items-center gap-2">
+                    {/* spinner */}
+                    <div className="w-10 h-10 rounded-full border-4 border-white border-t-transparent animate-spin" />
+                    {/* percent */}
+                    <div className="text-sm text-white font-semibold">
+                      {Math.round(uploadProgress)}%
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-2">
+              <div className="text-sm font-semibold text-gray-800">Select an image</div>
+              <div className="text-xs text-gray-500">Square images work best</div>
+            </div>
+
+            {/* Linear progress bar underneath the label area when uploading */}
+            {isUploadingPhoto && (
+              <div className="w-full mt-3">
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${uploadProgress}% `}}
+                    transition={{ ease: "easeOut", duration: 0.4 }}
+                    className="h-full bg-gradient-to-r from-purple-500 to-purple-700"
+                  />
+                </div>
+              </div>
+            )}
+          </label>
+
+          {/* Upload / remove controls */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handlePicUpload}
+              disabled={!profilePicFile || isUploadingPhoto}
+              className={`px-4 py-2 rounded-lg text-white ${
+                profilePicFile && !isUploadingPhoto
+                  ? "bg-purple-600 hover:bg-purple-700"
+                  : "bg-gray-300 cursor-not-allowed"
+              }`}
+            >
+              {isUploadingPhoto ? "Uploading..." : "Upload"}
+            </button>
+            {profilePicFile && !isUploadingPhoto && (
+              <button
+                onClick={() => {
+                  setProfilePicFile(null);
+                  // also clear native input value so same file can be selected again
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }}
+                className="px-3 py-2 rounded-lg border border-gray-200 text-gray-700"
+              >
+                Remove
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Email Section */}
@@ -295,24 +459,13 @@ export default function Settings() {
 
       {/* Logout & Delete */}
       <div className="flex flex-col gap-2 pt-4">
-        <button
-          onClick={handleLogout}
-          className="bg-gray-800 text-white px-4 py-2 rounded"
-        >
+        <button onClick={handleLogout} className="bg-gray-800 text-white px-4 py-2 rounded">
           Logout
         </button>
-        <button
-          onClick={deleteAccount}
-          className="bg-red-600 text-white px-4 py-2 rounded"
-        >
+        <button onClick={deleteAccount} className="bg-red-600 text-white px-4 py-2 rounded">
           Delete Account
         </button>
       </div>
-
-      {/* Bottom Tab */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t">
-        <BottomTab />
-      </div>
     </motion.div>
-  );
+);
 }

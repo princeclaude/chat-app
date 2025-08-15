@@ -698,7 +698,7 @@ export default function ChatList() {
                   // Also add touch move/end events to manage long-press correctly (extra safety)
                   onTouchMove={(e) => moveLongPress(e)}
                   onTouchEnd={() => endLongPress()}
-                  className="flex items-center justify-between p-3 rounded-lg shadow-md bg-gray-50 hover:bg-purple-50 transition-all duration-150 cursor-pointer"
+                  className="no-select-touch flex items-center justify-between p-3 rounded-lg shadow-md bg-gray-50 hover:bg-purple-50 transition-all duration-150 cursor-pointer"
                   style={{
                     transform: `translateX(${translateX}px)`,
                     transition:
