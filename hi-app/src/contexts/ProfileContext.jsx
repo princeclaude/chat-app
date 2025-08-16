@@ -41,21 +41,17 @@ export const ProfileProvider = ({ children }) => {
   
   const signup = async (email, password) => {
     try {
-      
       const existingUser = await getDoc(doc(db, "users", email));
       if (existingUser.exists()) {
         toast.error("Email already registered");
         return;
       }
 
-      
       const pin = generatePin();
 
-      
       const res = await createUserWithEmailAndPassword(auth, email, password);
       const createdUser = res.user;
 
-      
       await setDoc(doc(db, "users", email), {
         email,
         pin,
@@ -63,6 +59,82 @@ export const ProfileProvider = ({ children }) => {
         accountPrivacy: "unlocked",
         createdAt: serverTimestamp(),
       });
+
+      // --- REPLACE WITH THIS in signup (after creating users/{email}) ---
+      const teamId = "chirp-team@system.local"; // canonical team id (use stable id)
+      const sanitize = (s = "") =>
+        String(s)
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "_");
+
+      // ensure a "chirp-team" user exists (optional if you already created it elsewhere)
+      await setDoc(
+        doc(db, "users", teamId),
+        {
+          email: teamId,
+          pin: "Chirp Team",
+          profilePic: null, // or a URL to your team avatar
+          system: true,
+          createdAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      // create a deterministic convo id (match ChatPanel pattern)
+      const a = sanitize(email);
+      const b = sanitize(teamId);
+      const convoId = [a, b].sort().join("");
+
+      // conversation doc at top level
+      const convoRef = doc(db, "conversations", convoId);
+      const convoSnap = await getDoc(convoRef);
+      if (!convoSnap.exists()) {
+        await setDoc(convoRef, {
+          id: convoId,
+          participants: [email, teamId],
+          otherUserEmail: teamId, // optional helpful field for your enrichment logic
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          lastMessage:
+            "👋 Welcome to Chirp! Tap the links below to learn more.",
+          lastMessageTime: serverTimestamp(),
+          isSystemConversation: true,
+          archived: false,
+        });
+      }
+
+      // add a single welcome message (idempotent)
+      const welcomeMsgRef = doc(
+        db,
+        "conversations",
+        convoId,
+        "messages",
+        "welcome"
+      );
+      const welcomeSnap = await getDoc(welcomeMsgRef);
+      if (!welcomeSnap.exists()) {
+        await setDoc(welcomeMsgRef, {
+          id: "welcome",
+          sender: teamId,
+          text: "Welcome to Chirp 🎉\n\nPrivacy Policy: https://yourapp.com/privacy\nAbout Us: https://yourapp.com/about\nContact: https://yourapp.com/contact",
+          createdAt: serverTimestamp(),
+          status: "delivered",
+          nonReplyable: true,
+        });
+      }
+
+      // update conversation metadata (safe to run even if exists)
+      await setDoc(
+        convoRef,
+        {
+          lastMessage:
+            "👋 Welcome to Chirp! Tap the links below to learn more.",
+          lastMessageTime: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+  
 
       setUser(createdUser);
       setProfile({ email, pin, verified: false });

@@ -9,6 +9,11 @@ import {
   getDoc,
   addDoc,
   serverTimestamp,
+  onSnapshot,
+  orderBy,
+  startAt,
+  endAt,
+  limit
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,6 +26,10 @@ export default function Explore() {
   const { profile } = useProfile(); // may be undefined while loading
   const [pin, setPin] = useState("");
   const [userResult, setUserResult] = useState(null);
+
+  const [suggestions, setSuggestions] = useState([]); // array of user docs
+  const suggestionsUnsubRef = useRef(null); // to keep current onSnapshot unsubscribe
+  const debounceRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [searchTriggered, setSearchTriggered] = useState(false);
   const navigate = useNavigate();
@@ -43,6 +52,142 @@ export default function Explore() {
     }
   }, []);
 
+  // real-time suggestions for pin prefix as user types
+  useEffect(() => {
+    // clean previous debounce/listener
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    if (suggestionsUnsubRef.current) {
+      suggestionsUnsubRef.current();
+      suggestionsUnsubRef.current = null;
+    }
+
+    const prefix = (pin || "").toUpperCase().trim();
+    if (!prefix) {
+      setSuggestions([]);
+      setSearchTriggered(false);
+      setLoading(false);
+      return;
+    }
+
+    // debounce to avoid firing on every keystroke
+    debounceRef.current = setTimeout(() => {
+      try {
+        // Build a prefix range query on 'pin'
+        // Requires ordering by pin for startAt/endAt to work
+        const q = query(
+          collection(db, "users"),
+          orderBy("pin"),
+          startAt(prefix),
+          endAt(prefix + "\uf8ff"),
+          limit(10)
+        );
+
+        setLoading(true);
+        suggestionsUnsubRef.current = onSnapshot(
+          q,
+          async (snap) => {
+            try {
+              // map raw docs to shallow user objects
+              const raw = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+              if (!raw || raw.length === 0) {
+                setSuggestions([]);
+                setLoading(false);
+                setSearchTriggered(true);
+                return;
+              }
+
+              // a small cancellation guard in case component unmounts while we're fetching
+              let canceled = false;
+              const unsubRef = suggestionsUnsubRef.current;
+              // if unsubRef becomes null later, consider it canceled
+              // (we can't directly detect unsubscribe here, so we check a flag after awaits)
+              // NOTE: We'll re-check before setting state below.
+
+              // Enrich each suggestion with presence, fresh user doc and conversation existence
+              const enrichedPromises = raw.map(async (u) => {
+                try {
+                  // re-fetch latest user doc (to include accountPrivacy etc.)
+                  const freshSnap = await getDoc(doc(db, "users", u.id)).catch(
+                    () => null
+                  );
+                  const baseUser =
+                    freshSnap && freshSnap.exists() ? freshSnap.data() : u;
+
+                  // get presence info
+                  const presenceSnap = await getDoc(
+                    doc(db, "currentUsers", u.id)
+                  ).catch(() => null);
+                  const presence =
+                    presenceSnap && presenceSnap.exists()
+                      ? presenceSnap.data()
+                      : {};
+
+                  // check existing conversation (uses your helper)
+                  const hasConversation = await checkConversationExists(u.id);
+
+                  return {
+                    id: u.id,
+                    ...baseUser,
+                    ...presence, // lastActive, online flags etc.
+                    hasConversation: !!hasConversation,
+                  };
+                } catch (err) {
+                  console.error("Failed to enrich suggestion for", u.id, err);
+                  // fallback to the raw doc if any sub-fetch fails
+                  return {
+                    id: u.id,
+                    ...u,
+                    hasConversation: false,
+                  };
+                }
+              });
+
+              const enriched = await Promise.all(enrichedPromises);
+
+              // If the snapshot listener was unsubscribed meanwhile, don't set state
+              if (!suggestionsUnsubRef.current) {
+                // listener gone -> component likely unmounted or q changed; abort
+                return;
+              }
+
+              setSuggestions(enriched);
+              setLoading(false);
+              setSearchTriggered(true);
+            } catch (err) {
+              console.error("Suggestions onSnapshot error (enrich):", err);
+              setLoading(false);
+            }
+          },
+          (err) => {
+            console.error("Suggestions onSnapshot error:", err);
+            setLoading(false);
+          }
+        );
+      } catch (err) {
+        console.error("Suggestion query construction error:", err);
+        setLoading(false);
+      }
+    }, 250); // 250ms debounce
+
+    // cleanup when pin changes or component unmounts
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      if (suggestionsUnsubRef.current) {
+        suggestionsUnsubRef.current();
+        suggestionsUnsubRef.current = null;
+      }
+    };
+  }, [pin]);
+
+
+
   const disableZoomTemporarily = () => {
     const meta = metaRef.current;
     if (!meta) return;
@@ -51,7 +196,10 @@ export default function Explore() {
       originalViewportRef.current = meta.getAttribute("content");
     }
     // set a viewport that disables zooming while typing/focus
-    meta.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0");
+    meta.setAttribute(
+      "content",
+      "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0"
+    );
   };
 
   const restoreZoom = () => {
@@ -88,12 +236,17 @@ export default function Explore() {
     try {
       if (!profile?.email || !otherUserId) return false;
       // get conversations that include current user and check participants client-side for otherUserId
-      const q = query(collection(db, "conversations"), where("participants", "array-contains", profile.email));
+      const q = query(
+        collection(db, "conversations"),
+        where("participants", "array-contains", profile.email)
+      );
       const snap = await getDocs(q);
       if (snap.empty) return false;
       for (const d of snap.docs) {
         const data = d.data();
-        const participants = Array.isArray(data.participants) ? data.participants : [];
+        const participants = Array.isArray(data.participants)
+          ? data.participants
+          : [];
         // documents may store user id/email; compare directly
         if (participants.includes(otherUserId)) return true;
       }
@@ -112,7 +265,10 @@ export default function Explore() {
 
     try {
       // Step 1: Find user by PIN in "users"
-      const q = query(collection(db, "users"), where("pin", "==", pin.toUpperCase()));
+      const q = query(
+        collection(db, "users"),
+        where("pin", "==", pin.toUpperCase())
+      );
       const snap = await getDocs(q);
 
       if (!snap.empty) {
@@ -122,7 +278,9 @@ export default function Explore() {
         // Re-fetch the user document directly to ensure we have the latest fields (accountPrivacy etc.)
         const userDocRef = doc(db, "users", userId);
         const freshUserSnap = await getDoc(userDocRef);
-        const baseUserData = freshUserSnap.exists() ? freshUserSnap.data() : docSnap.data();
+        const baseUserData = freshUserSnap.exists()
+          ? freshUserSnap.data()
+          : docSnap.data();
 
         // Step 2: Get presence info from "currentUsers"
         const currentSnap = await getDoc(doc(db, "currentUsers", userId));
@@ -166,7 +324,13 @@ export default function Explore() {
       const userDocRef = doc(db, "users", user.id);
       const fresh = await getDoc(userDocRef);
       const freshData = fresh.exists() ? fresh.data() : {};
-      const accountPrivacy = (freshData.accountPrivacy || user.accountPrivacy || "").toString().toLowerCase();
+      const accountPrivacy = (
+        freshData.accountPrivacy ||
+        user.accountPrivacy ||
+        ""
+      )
+        .toString()
+        .toLowerCase();
 
       // check conversation existence live (so if a conversation was created meanwhile, we continue)
       const hasConversation = await checkConversationExists(user.id);
@@ -296,7 +460,63 @@ export default function Explore() {
             </motion.p>
           )}
 
-          {!loading && userResult && (
+          {/* suggestions (real-time) */}
+          {!loading && suggestions && suggestions.length > 0 && (
+            <motion.div
+              key="suggestions"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-2"
+            >
+              {suggestions.map((u) => (
+                <motion.div
+                  key={u.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  whileHover={{ scale: 1.01 }}
+                  className="flex items-center gap-3 p-3 bg-gray-100 rounded-lg shadow-sm hover:bg-gray-200 transition cursor-pointer"
+                  onClick={() => handleResultClick(u)}
+                >
+                  {u.profilePic ? (
+                    <img
+                      src={u.profilePic}
+                      alt="profile"
+                      className="w-12 h-12 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-gray-100 flex border-2 border-purple-700 items-center justify-center">
+                      <FaUser className="text-purple-500" />
+                    </div>
+                  )}
+
+                  <div>
+                    <p className="font-bold text-purple-700">
+                      {u.pin || "UNKNOWN"}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Last active: {formatLastActive(u.lastActive)}
+                    </p>
+                    {u.accountPrivacy && (
+                      <p className="text-xs mt-1">
+                        <strong>Privacy:</strong> {String(u.accountPrivacy)}
+                      </p>
+                    )}
+                    {u.hasConversation && (
+                      <p className="text-xs text-green-600 mt-1">
+                        Chirped! - tap to continue.
+                      </p>
+                    )}
+                    
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
+
+          {/* single explicit result (keeps existing behavior if you still use handleSearch) */}
+          {!loading && userResult && suggestions.length === 0 && (
             <motion.div
               key="result"
               initial={{ opacity: 0, y: 15 }}
@@ -306,7 +526,6 @@ export default function Explore() {
               className="flex items-center gap-3 p-3 bg-gray-100 rounded-lg shadow-sm hover:bg-gray-200 transition cursor-pointer"
               onClick={() => handleResultClick(userResult)}
             >
-              {/* fallback to FaUser when no profilePic */}
               {userResult.profilePic ? (
                 <img
                   src={userResult.profilePic}
@@ -318,7 +537,6 @@ export default function Explore() {
                   <FaUser className="text-purple-500" />
                 </div>
               )}
-
               <div>
                 <p className="font-bold text-purple-700">{userResult.pin}</p>
                 <p className="text-sm text-gray-500">
@@ -330,26 +548,30 @@ export default function Explore() {
                     {String(userResult.accountPrivacy)}
                   </p>
                 )}
-
-                {/* helpful hint if a conversation already exists */}
                 {userResult.hasConversation && (
-                  <p className="text-xs text-green-600 mt-1">You already have a conversation with this user — tap to continue.</p>
+                  <p className="text-xs text-green-600 mt-1">
+                    Chirped! - tap to continue.
+                  </p>
                 )}
               </div>
             </motion.div>
           )}
 
-          {!loading && searchTriggered && !userResult && (
-            <motion.p
-              key="noresult"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="text-center text-gray-400"
-            >
-              No user found
-            </motion.p>
-          )}
+          {/* show "No user found" when user explicitly searched, or when there are no suggestions AND user typed */}
+          {!loading &&
+            suggestions.length === 0 &&
+            searchTriggered &&
+            !userResult && (
+              <motion.p
+                key="noresult"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-center text-gray-400"
+              >
+                No user found
+              </motion.p>
+            )}
         </AnimatePresence>
       </div>
 
@@ -389,9 +611,9 @@ export default function Explore() {
             >
               <div className="mx-auto max-w-lg text-center">
                 <div className="w-12 h-12 rounded-full bg-purple-50 mx-auto flex items-center justify-center mb-4">
-                  {userResult.profilePic ? (
+                  {lockedUser.profilePic ? (
                     <img
-                      src={userResult.profilePic}
+                      src={lockedUser.profilePic}
                       alt="profile"
                       className="w-12 h-12 rounded-full object-cover"
                     />
@@ -445,6 +667,6 @@ export default function Explore() {
           </>
         )}
       </AnimatePresence>
- </div>
-);
+    </div>
+  );
 }

@@ -52,16 +52,15 @@ export default function ChatPanel() {
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState("");
   const [convoId, setConvoId] = useState(null);
+  const[isSystemConversation, setIsSystemConversation] = useState(false)
   const [loading, setLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const { showToast } = useToast();
   const [replyTo, setReplyTo] = useState(null);
-
-  // modals
   const [showPicModal, setShowPicModal] = useState(false);
   const [imageModalUrl, setImageModalUrl] = useState(null);
 
-  // uploading state
+  
   const [isUploading, setIsUploading] = useState(false);
 
   const endRef = useRef(null);
@@ -71,6 +70,32 @@ export default function ChatPanel() {
 
   // touch helpers to detect an intentional tap (mobile)
   const touchStartRef = useRef({});
+
+
+  useEffect(() => {
+    if (!convoId) {
+      setIsSystemConversation(false);
+      return;
+    }
+
+    let mounted = true;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(db, "conversations", convoId));
+        const data = snap && snap.exists() ? snap.data() : null;
+        if (mounted)
+          setIsSystemConversation(Boolean(data?.isSystemConversation));
+      } catch (err) {
+        console.error("Failed to read conversation meta:", err);
+        if (mounted) setIsSystemConversation(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
+  }, [convoId]);
+
 
   const handleTouchStart = (e, id) => {
     const t = e.touches?.[0];
@@ -102,7 +127,7 @@ export default function ChatPanel() {
     message: null,
   });
 
-  // handle bubble click
+  
   const handleBubbleClick = (e, message) => {
     // prevent page-level handlers from interfering
     try {
@@ -147,16 +172,16 @@ export default function ChatPanel() {
     } else if (spaceLeft >= modalWidth + padding) {
       x = Math.max(padding, rect.left - modalWidth - padding);
     } else {
-      // not enough space on either side — center near bubble but clamp inside viewport
+      
       x = Math.min(
         Math.max(rect.left + rect.width / 2 - modalWidth / 2, padding),
         screenWidth - modalWidth - padding
       );
     }
 
-    // vertical placement: try to align top with bubble; if not fit, shift up/down; ensure visible above keyboard
+    
     let y = rect.top;
-    // if bubble is too low and modal would overflow bottom, try position above bubble
+    
     if (rect.top + modalHeight + padding > screenHeight) {
       // try to place above the bubble
       if (rect.top - modalHeight - padding >= 0) {
@@ -177,8 +202,6 @@ export default function ChatPanel() {
       message,
     });
   };
-
-
 
   const closeActionModal = () =>
     setActionModal({ show: false, x: 0, y: 0, message: null });
@@ -554,6 +577,10 @@ export default function ChatPanel() {
   };
 
   const handleSend = async () => {
+    if (isSystemConversation) {
+      showToast?.("This conversation is readonly!", "default", 1400)
+      return;
+    }
     if (!convoId || !currentEmail) return;
     if (!messageText.trim() && !replyTo && !isUploading) return; // nothing to send
 
@@ -576,10 +603,7 @@ export default function ChatPanel() {
         };
       }
 
-      // If you're supporting image only sends, you would also attach image fields here
-      // e.g. if (pendingImage) msg.imageThumbUrl = pendingImage.thumbUrl
-
-      // write to Firestore
+     
       await addDoc(collection(db, "conversations", convoId, "messages"), msg);
       sendSoundRef.current.play().catch(() => {});
 
@@ -692,6 +716,7 @@ export default function ChatPanel() {
       setIsUploading(false);
     }
   };
+  const canSend = messageText.trim().length > 0 || !!replyTo || isUploading;
 
   // -----------------------
   // Modals (profile + image)
@@ -847,15 +872,15 @@ export default function ChatPanel() {
             No messages yet. Send a chirp!
           </div>
         )}
-        {messages.replyTo && (
+        {replyTo && (
           <div className="quoted bg-white/10 px-2 py-1 rounded-md mb-2 text-xs text-gray-200">
             <div className="font-semibold text-[10px] mb-0">
-              {messages.replyTo.sender}
+              {replyTo.sender}
             </div>
             <div className="truncate">
-              {messages.replyTo.text
-                ? messages.replyTo.text
-                : messages.replyTo.imageThumbUrl
+              {replyTo.text
+                ? replyTo.text
+                : replyTo.imageThumbUrl
                 ? "📷 Photo"
                 : ""}
             </div>
@@ -1005,17 +1030,16 @@ export default function ChatPanel() {
             onKeyDown={handleKeyDown}
             className="flex-1 px-4 py-2 rounded-full border border-purple-400 focus:outline-none"
           />
-          <button
-            onClick={handleSend}
-            className={`p-3 rounded-full ${
-              messageText.trim()
-                ? "bg-purple-600 text-white"
-                : "bg-gray-200 text-gray-400"
-            }`}
-            disabled={!messageText.trim()}
-          >
-            <FaPaperPlane />
-          </button>
+          {/* before return (or just above JSX) you can add:
+   const canSend = messageText.trim().length > 0 || !!replyTo || isUploading;
+*/}
+         <button
+  onClick={handleSend}
+  className={`p-3 rounded-full ${canSend ? "bg-purple-600 text-white" : "bg-gray-200 text-gray-400"}`}
+  disabled={!canSend}
+>
+  <FaPaperPlane/>
+</button>
         </div>
       </div>
 

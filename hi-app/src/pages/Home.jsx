@@ -20,12 +20,12 @@ import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
-import { FiMoreVertical, FiRefreshCw, FiSearch, FiArchive } from "react-icons/fi";
-import { FaUser, FaTrash, FaFile, FaShare, FaLock, FaLockOpen, FaScroll, FaInfo , FaEnvelopeOpen} from "react-icons/fa";
+import { FiMoreVertical,  FiSearch, FiArchive } from "react-icons/fi";
+import { FaUser, FaTrash, FaFile, FaShare, FaLock, FaLockOpen, FaScroll, FaInfo , FaEnvelopeOpen, FaUserPlus} from "react-icons/fa";
 import BottomTab from "../components/BottomTab";
 import { useProfile } from "../contexts/ProfileContext";
 import { FaTimes } from "react-icons/fa";
-import ConversationRow from "../components/ConversationRow";
+
 
 dayjs.extend(relativeTime);
 
@@ -39,10 +39,11 @@ export default function ChatList() {
   const [isClosing, setIsClosing] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const navigate = useNavigate();
-  const userCacheRef = useRef(new Map()); 
+  const userCacheRef = useRef(new Map());
   const [archivedCount, setArchivedCount] = useState(0);
-  const [accountPrivacy, setAccountPrivacy] = useState(profile?.accountPrivacy || "unlocked")
-
+  const [accountPrivacy, setAccountPrivacy] = useState(
+    profile?.accountPrivacy || "unlocked"
+  );
 
   useEffect(() => {
     setAccountPrivacy(profile?.accountPrivacy || "unlocked");
@@ -71,7 +72,6 @@ export default function ChatList() {
       setShowMenu(false);
     }
   };
-
 
   // pointer / drag state
   const pointerStartXRef = useRef(null);
@@ -105,7 +105,7 @@ export default function ChatList() {
     if (!isTouchPointer) return;
 
     longPressMovedRef.current = false;
-    longPressStartYRef.current = e.clientY ?? (e.touches?.[0]?.clientY ?? 0);
+    longPressStartYRef.current = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
 
     // 600ms long press
     longPressTimerRef.current = setTimeout(() => {
@@ -126,7 +126,7 @@ export default function ChatList() {
     // If long-press not started, nothing to do.
     if (!longPressTimerRef.current) return;
 
-    const currentY = e.clientY ?? (e.touches?.[0]?.clientY ?? null);
+    const currentY = e.clientY ?? e.touches?.[0]?.clientY ?? null;
     if (currentY == null) return;
     if (Math.abs(currentY - longPressStartYRef.current) > 10) {
       longPressMovedRef.current = true;
@@ -146,48 +146,91 @@ export default function ChatList() {
     }, 250); // match animation duration
   };
 
+  // subscribe to conversations (server-side filtered)
   useEffect(() => {
-    if (!profile?.email) {
-      setArchivedCount(0);
-      return;
-    }
-    const q = query(
+    if (!profile?.email) return;
+
+    const q1 = query(
       collection(db, "conversations"),
-      where("participants", "array-contains", profile.email),
-      where("archived", "==", true)
+      where("sender", "==", profile.email),
+      orderBy("updatedAt", "desc")
     );
 
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setArchivedCount(snap.size || 0);
+    const q2 = query(
+      collection(db, "conversations"),
+      where("receiver", "==", profile.email),
+      orderBy("updatedAt", "desc")
+    );
+
+    const systemConvo = {
+      id: "chirp-team",
+      isSystemConversation: true,
+      sender: "Chirp Team",
+      receiver: profile?.email,
+      lastMessage: {
+        text: "👋 Welcome to Chirp! Here are some useful links: Privacy | About Us | Contact",
+        createdAt: new Date(),
       },
-      (err) => {
-        console.error("Archived count listener error:", err);
-        setArchivedCount(0);
-      }
-    );
+      updatedAt: new Date(),
+      unread: false,
+    };
 
-    return () => unsub();
+    const unsub1 = onSnapshot(q1, (snap1) => {
+      const convos1 = snap1.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setConversations((prev) => {
+        const filtered = prev.filter(
+          (c) => c._source !== "q1" && c.id !== "chirp-team"
+        );
+        return [
+          systemConvo,
+          ...filtered,
+          ...convos1.map((c) => ({ ...c, _source: "q1" })),
+        ];
+      });
+    });
+
+    const unsub2 = onSnapshot(q2, (snap2) => {
+      const convos2 = snap2.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setConversations((prev) => {
+        const filtered = prev.filter(
+          (c) => c._source !== "q2" && c.id !== "chirp-team"
+        );
+        return [
+          systemConvo,
+          ...filtered,
+          ...convos2.map((c) => ({ ...c, _source: "q2" })),
+        ];
+      });
+    });
+
+    return () => {
+      unsub1();
+      unsub2();
+    };
   }, [profile?.email]);
 
-  
+
 
   const currentUser = {
     pin: profile?.pin || "",
-    profilePic: profile?.profilePic || "/default-profile.png",
+    profilePic: profile?.profilePic || null,
     email: profile?.email || null,
   };
 
   // subscribe to conversations (exclude archived by default in UI)
   useEffect(() => {
-    const q = query(collection(db, "conversations"), orderBy("updatedAt", "desc"));
+    const q = query(
+      collection(db, "conversations"),
+      orderBy("updatedAt", "desc")
+    );
     const unsub = onSnapshot(q, (snapshot) => {
       const convos = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
       // hide archived conversations from main list
       const visible = convos.filter((c) => !c.archived);
       const filtered = profile?.email
-        ? visible.filter((c) => !c.participants || c.participants.includes(profile.email))
+        ? visible.filter(
+            (c) => !c.participants || c.participants.includes(profile.email)
+          )
         : visible;
       setConversations(filtered);
     });
@@ -222,7 +265,8 @@ export default function ChatList() {
             else if (c.otherUserId) otherEmail = c.otherUserId;
           }
 
-          if (otherEmail && !userCacheRef.current.has(otherEmail)) toFetch.add(otherEmail);
+          if (otherEmail && !userCacheRef.current.has(otherEmail))
+            toFetch.add(otherEmail);
           return { ...c, otherEmail };
         });
 
@@ -248,7 +292,9 @@ export default function ChatList() {
         }
 
         const merged = convosToResolve.map((c) => {
-          const other = c.otherEmail ? userCacheRef.current.get(c.otherEmail) : null;
+          const other = c.otherEmail
+            ? userCacheRef.current.get(c.otherEmail)
+            : null;
           return {
             ...c,
             otherUserEmail: c.otherEmail || null,
@@ -300,7 +346,12 @@ export default function ChatList() {
     setConfirmDeleteId(null);
 
     try {
-      const messagesColRef = collection(db, "conversations", conversationId, "messages");
+      const messagesColRef = collection(
+        db,
+        "conversations",
+        conversationId,
+        "messages"
+      );
       let last = null;
       const pageSize = 500;
 
@@ -314,7 +365,9 @@ export default function ChatList() {
 
         const batch = writeBatch(db);
         snap.docs.forEach((d) => {
-          batch.delete(doc(db, "conversations", conversationId, "messages", d.id));
+          batch.delete(
+            doc(db, "conversations", conversationId, "messages", d.id)
+          );
         });
         await batch.commit();
         last = snap.docs[snap.docs.length - 1];
@@ -348,7 +401,11 @@ export default function ChatList() {
         const prevCount = Number(localStorage.getItem("archivedCount") || 0);
         localStorage.setItem("archivedCount", String(prevCount + 1));
         // you may also dispatch a custom event so other parts of app can listen
-        window.dispatchEvent(new CustomEvent("archive:updated", { detail: { count: prevCount + 1 } }));
+        window.dispatchEvent(
+          new CustomEvent("archive:updated", {
+            detail: { count: prevCount + 1 },
+          })
+        );
       } catch (err) {
         // ignore storage errors
       }
@@ -361,7 +418,7 @@ export default function ChatList() {
   // pointer/touch handlers
   const handlePointerDown = (e, id) => {
     // support pointer and touch
-    const clientX = e.clientX ?? (e.touches?.[0]?.clientX ?? null);
+    const clientX = e.clientX ?? e.touches?.[0]?.clientX ?? null;
     pointerStartXRef.current = clientX;
     activePointerIdRef.current = id;
 
@@ -379,7 +436,7 @@ export default function ChatList() {
     if (activePointerIdRef.current !== id) return;
     const startX = pointerStartXRef.current;
     if (startX == null) return;
-    const currentX = e.clientX ?? (e.touches?.[0]?.clientX ?? null);
+    const currentX = e.clientX ?? e.touches?.[0]?.clientX ?? null;
     if (currentX == null) return;
     let delta = currentX - startX; // right swipe => positive
     // clamp - allow some left drag but we mainly support right swipes
@@ -477,7 +534,11 @@ export default function ChatList() {
           </span>
         </div>
         <div className="flex items-center gap-4 text-gray-600">
-          {/* Archive button + badge (replace your existing FiArchive + badge block) */}
+          <div className="relative">
+            <button>
+              <FaUserPlus className="text-lg text-purple-600 font-bold" />
+            </button>
+          </div>
           <div className="relative">
             <button
               onClick={() => navigate("/archived")}
@@ -485,7 +546,7 @@ export default function ChatList() {
               className="p-1 rounded-full relative z-10"
               aria-label="Open archived chats"
             >
-              <FiArchive className="text-xl text-purple-600 font-bold" />
+              <FiArchive className="text-lg text-purple-600 font-bold" />
             </button>
 
             {archivedCount > 0 && (
@@ -498,7 +559,7 @@ export default function ChatList() {
             )}
           </div>
           <FiMoreVertical
-            className="text-xl text-purple-600 font-bold cursor-pointer"
+            className="text-lg text-purple-600 font-bold cursor-pointer"
             onClick={() => setShowMenu((prev) => !prev)}
           />
         </div>
