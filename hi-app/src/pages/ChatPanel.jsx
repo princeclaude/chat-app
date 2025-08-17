@@ -21,7 +21,7 @@ import { useProfile } from "../contexts/ProfileContext";
 import {
   
   FaPhoneAlt,
-  FaPaperclip,
+  FaGamepad,
   FaPaperPlane,
   FaImage,
   FaBullhorn,
@@ -34,6 +34,7 @@ import {
 import { BsCheck, BsCheckAll } from "react-icons/bs";
 import dayjs from "dayjs";
 import { useToast } from "../contexts/ToastContext";
+import GamePicker from "../components/GamePicker";
 
 
 export default function ChatPanel() {
@@ -52,16 +53,16 @@ export default function ChatPanel() {
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState("");
   const [convoId, setConvoId] = useState(null);
-  const[isSystemConversation, setIsSystemConversation] = useState(false)
+  const [isSystemConversation, setIsSystemConversation] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
   const { showToast } = useToast();
   const [replyTo, setReplyTo] = useState(null);
   const [showPicModal, setShowPicModal] = useState(false);
   const [imageModalUrl, setImageModalUrl] = useState(null);
-  const [chatBgUrl, setChatBgUrl] = useState(null)
+  const [activeGame, setActiveGame] = useState(null);
+  const [chatBgUrl, setChatBgUrl] = useState(null);
 
-  
   const [isUploading, setIsUploading] = useState(false);
 
   const endRef = useRef(null);
@@ -69,10 +70,37 @@ export default function ChatPanel() {
   const receiveSoundRef = useRef(new Audio("/sounds/receive.mp3"));
   const presenceHeartbeatRef = useRef(null);
 
+  const [showGamePicker, setShowGamePicker] = useState(false);
+  const openGamePicker = () => setShowGamePicker(true);
+  const closeGamePicker = () => setShowGamePicker(false);
+  const [gamesList] = useState([
+    {
+      id: "catch-dot",
+      title: "Catch Dot",
+      url: "/games/catch-dot/index.html",
+      thumbnail: "/games/catch-dot.jpg"
+      
+    }
+  ])
+
+
   // touch helpers to detect an intentional tap (mobile)
   const touchStartRef = useRef({});
 
+  
 
+  
+
+  useEffect(() => {
+    if (!convoId) return;
+    const gameRef = doc(db, "conversations", convoId, "game", "current");
+    const unsub = onSnapshot(gameRef, (snap) => {
+      setActiveGame(snap.exists() ? snap.data() : null);
+    });
+    return unsub;
+  }, [convoId]);
+
+ 
 
   useEffect(() => {
     if (!currentEmail) return;
@@ -81,7 +109,6 @@ export default function ChatPanel() {
     });
     return unsub;
   }, [currentEmail]);
-
 
   useEffect(() => {
     if (!convoId) {
@@ -107,11 +134,44 @@ export default function ChatPanel() {
     };
   }, [convoId]);
 
-
   const handleTouchStart = (e, id) => {
     const t = e.touches?.[0];
     if (!t) return;
     touchStartRef.current[id] = { x: t.clientX, y: t.clientY, t: Date.now() };
+  };
+
+  const startGame = async (game) => {
+    const url = game?.url; // local file in /public/games/...
+    if (!convoId || !currentEmail || !url) {
+      showToast?.("Can't start game (missing data)", "default", 1400);
+      return;
+    }
+    try {
+      await setDoc(
+        doc(db, "conversations", convoId, "game", "current"),
+        {
+          title: game.title || "Game",
+          url, // <-- local URL
+          startedAt: serverTimestamp(),
+          startedBy: currentEmail,
+        },
+        { merge: true }
+      );
+      closeGamePicker();
+    } catch (e) {
+      console.error("startGame error", e);
+      showToast?.("Couldn't start game", "default", 1500);
+    }
+  };
+
+  const endGame = async () => {
+    if (!convoId) return;
+    try {
+      await deleteDoc(doc(db, "conversations", convoId, "game", "current"));
+    } catch (e) {
+      console.error("endGame error", e);
+      showToast?.("Couldn't end game", "default", 1500);
+    }
   };
 
   const handleTouchEnd = (e, message) => {
@@ -138,7 +198,6 @@ export default function ChatPanel() {
     message: null,
   });
 
-  
   const handleBubbleClick = (e, message) => {
     // prevent page-level handlers from interfering
     try {
@@ -183,16 +242,14 @@ export default function ChatPanel() {
     } else if (spaceLeft >= modalWidth + padding) {
       x = Math.max(padding, rect.left - modalWidth - padding);
     } else {
-      
       x = Math.min(
         Math.max(rect.left + rect.width / 2 - modalWidth / 2, padding),
         screenWidth - modalWidth - padding
       );
     }
 
-    
     let y = rect.top;
-    
+
     if (rect.top + modalHeight + padding > screenHeight) {
       // try to place above the bubble
       if (rect.top - modalHeight - padding >= 0) {
@@ -589,7 +646,7 @@ export default function ChatPanel() {
 
   const handleSend = async () => {
     if (isSystemConversation) {
-      showToast?.("This conversation is readonly!", "default", 1400)
+      showToast?.("This conversation is readonly!", "default", 1400);
       return;
     }
     if (!convoId || !currentEmail) return;
@@ -614,7 +671,6 @@ export default function ChatPanel() {
         };
       }
 
-     
       await addDoc(collection(db, "conversations", convoId, "messages"), msg);
       sendSoundRef.current.play().catch(() => {});
 
@@ -789,8 +845,6 @@ export default function ChatPanel() {
     }
   };
 
-  
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
@@ -798,15 +852,14 @@ export default function ChatPanel() {
       </div>
     );
   }
-    const messageAreaStyle = chatBgUrl
-  ? {
-      // subtle white veil so bubbles remain readabl
-      backgroundImage: `url(${chatBgUrl})`,
-      backgroundSize: "cover",
-      backgroundPosition: "center",
-      backgroundRepeat: "no-repeat",
-}
-     :{};
+  const messageAreaStyle = chatBgUrl
+    ? {
+        backgroundImage: `url(${chatBgUrl})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+      }
+    : {};
   return (
     <div className="flex flex-col h-screen bg-white text-black">
       {/* Hidden file input */}
@@ -887,9 +940,10 @@ export default function ChatPanel() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 cursor-default"
+      <div
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-3 cursor-default"
         style={messageAreaStyle}
-       >
+      >
         {messages.length === 0 && (
           <div className="py-10 text-center text-gray-400 cursor-pointer">
             No messages yet. Send a chirp!
@@ -1044,6 +1098,17 @@ export default function ChatPanel() {
           <button onClick={comingSoon}>
             <FaImage className="text-xl text-purple-600" />
           </button>
+          <button
+            onClick={openGamePicker}
+            disabled={isSystemConversation}
+            title="Play a game"
+          >
+            <FaGamepad
+              className={`text-xl ${
+                isSystemConversation ? "text-gray-300" : "text-purple-600"
+              }`}
+            />
+          </button>
 
           <input
             type="text"
@@ -1056,74 +1121,96 @@ export default function ChatPanel() {
           {/* before return (or just above JSX) you can add:
    const canSend = messageText.trim().length > 0 || !!replyTo || isUploading;
 */}
-         <button
-  onClick={handleSend}
-  className={`p-3 rounded-full ${canSend ? "bg-purple-600 text-white" : "bg-gray-200 text-gray-400"}`}
-  disabled={!canSend}
->
-  <FaPaperPlane/>
-</button>
+          <button
+            onClick={handleSend}
+            className={`p-3 rounded-full ${
+              canSend ? "bg-purple-600 text-white" : "bg-gray-200 text-gray-400"
+            }`}
+            disabled={!canSend}
+          >
+            <FaPaperPlane />
+          </button>
         </div>
       </div>
 
-      {/* Profile image modal */}
-      {showPicModal && otherUser?.profilePic && (
+      {showGamePicker && (
         <div
-          className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={closePicModal}
+          className="fixed inset-0 bg-black/50 z-90"
+          onClick={closeGamePicker}
         >
           <div
-            className="max-w-[92%] max-h-[86%] p-4 relative"
+            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl p-4 max-h-[75vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <button
-              aria-label="Close"
-              onClick={closePicModal}
-              className="absolute top-3 right-3 z-70 text-purple-600 text-lg w-10 h-10 bg-purple-200 rounded-full p-1 "
-            >
-              ✕
-            </button>
-            <div className="w-full h-full flex items-center justify-center">
-              <img
-                src={otherUser.profilePic}
-                alt="Profile zoom"
-                className="w-72 h-72 rounded-full mt-4 object-cover border-4 border-purple-500 shadow-lg transform transition-transform duration-400 ease-out scale-100 animate-zoom-in"
-                style={{
-                  animation: "zoomIn 320ms cubic-bezier(.2,.9,.3,1) both",
-                }}
-              />
+            <div className="flex justify-between items-center mb-3">
+              <h3 className="text-lg font-semibold">Pick a Game</h3>
+              <button onClick={closeGamePicker} className="text-gray-500">
+                Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              {gamesList.map((g) => (
+                <button
+                  key={g.id}
+                  onClick={() => startGame(g)} // <-- pass the local object
+                  className="rounded-xl overflow-hidden shadow hover:shadow-lg"
+                >
+                  <div className="w-full aspect-[4/3] bg-gray-200 overflow-hidden">
+                    {g.thumbnail ? (
+                      <img
+                        src={g.thumbnail}
+                        alt={g.title}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        🎮
+                      </div>
+                    )}
+                  </div>
+                  <div className="p-2">
+                    <div className="text-sm font-semibold truncate">
+                      {g.title}
+                    </div>
+                  </div>
+                </button>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* Image modal (full-size) */}
-      {imageModalUrl && (
-        <div
-          className="fixed inset-0 z-70 flex items-center justify-center bg-black/70"
-          onClick={closeImageModal}
-        >
-          <div
-            className="max-w-[95%] max-h-[90%] relative"
-            onClick={(e) => e.stopPropagation()}
-          >
+      {activeGame && (
+        <div className="bg-black/60 rounded-lg overflow-hidden mb-3 border border-purple-300">
+          <div className="flex items-center justify-between bg-purple-600 text-white px-3 py-2">
+            <div className="text-sm font-semibold truncate">
+              {activeGame.title}
+            </div>
             <button
-              onClick={closeImageModal}
-              aria-label="Close image"
-              className="absolute top-2 right-2 z-80 bg-black/40 text-white rounded-full p-2"
+              onClick={endGame}
+              className="text-xs px-2 py-1 bg-white/20 rounded"
             >
-              ✕
+              ✖ End
             </button>
-            <img
-              src={imageModalUrl}
-              alt="Full"
-              className="max-w-full max-h-[80vh] rounded-lg shadow-2xl object-contain"
-            />
           </div>
+          <iframe
+            src={activeGame.url}
+            title={activeGame.title}
+            className="w-full h-[320px] sm:h-[380px] border-0"
+            allow="autoplay; fullscreen; clipboard-read; clipboard-write; gamepad *"
+            allowFullScreen
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+          
         </div>
       )}
 
       <style>{`
+
+      
+@keyframes sheetUp { from { transform: translateY(12%); opacity: .6; } to { transform: translateY(0); opacity: 1; } }
         @keyframes pop {
           0% { transform: scale(0.94); opacity: 0; }
           60% { transform: scale(1.02); opacity: 1; }

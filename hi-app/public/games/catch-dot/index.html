@@ -1,0 +1,157 @@
+<!-- public/games/catch-dot/index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Catch Dot</title>
+  <style>
+    html,body { height:100%; margin:0; background:#0f172a; color:#fff; font-family:system-ui,Segoe UI,Roboto; -webkit-user-select:none; -ms-user-select:none; user-select:none; }
+    #game { display:block; width:100%; height:100vh; touch-action:none; }
+    .ui { position:fixed; left:8px; top:8px; z-index:999; font-weight:600; background:rgba(255,255,255,0.06); padding:6px 10px; border-radius:8px; }
+    .hint { position:fixed; right:8px; top:8px; z-index:999; background:rgba(255,255,255,0.04); padding:6px 10px; border-radius:8px; font-size:13px }
+    .btn { margin-left:8px; padding:6px 8px; background:#7c3aed; color:white; border-radius:8px; border:0; }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div class="ui" id="score">Score: 0</div>
+  <div class="hint">Tap to move paddle → Catch dots<div style="display:inline-block"><button id="restart" class="btn">Restart</button></div></div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d', { alpha: false });
+  let W = innerWidth, H = innerHeight;
+  const DPR = Math.max(1, window.devicePixelRatio || 1);
+  const resize = () => {
+    W = innerWidth; H = innerHeight;
+    canvas.width = Math.floor(W * DPR);
+    canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  };
+  window.addEventListener('resize', resize);
+  resize();
+
+  // Game state
+  let score = 0;
+  let running = true;
+
+  const paddle = {
+    x: W/2,
+    y: H - 88,
+    w: Math.min(260, W - 40),
+    h: 18,
+  };
+
+  const dots = [];
+  const spawnInterval = 900; // ms
+  let lastSpawn = 0;
+
+  function spawn() {
+    const radius = 14 + Math.random()*10;
+    const x = 24 + Math.random()*(W-48);
+    dots.push({ x, y: -30, r: radius, vy: 80 + Math.random()*120 });
+  }
+
+  // Input: touch/mouse — set paddle.x to pointer x
+  function pointerMove(clientX) {
+    paddle.x = Math.max(paddle.w/2 + 8, Math.min(W - paddle.w/2 - 8, clientX));
+  }
+  window.addEventListener('touchstart', (e) => { e.preventDefault(); pointerMove(e.touches[0].clientX); });
+  window.addEventListener('touchmove',  (e) => { e.preventDefault(); pointerMove(e.touches[0].clientX); });
+  window.addEventListener('mousedown', (e) => pointerMove(e.clientX));
+  window.addEventListener('mousemove', (e) => { if (e.buttons) pointerMove(e.clientX); });
+
+  // Restart
+  document.getElementById('restart').addEventListener('click', () => {
+    score = 0; dots.length = 0; running = true; lastSpawn = performance.now();
+  });
+
+  function rectCircleColl(px, py, pw, ph, cx, cy, cr) {
+    // AABB vs circle
+    const nearestX = Math.max(px - pw/2, Math.min(cx, px + pw/2));
+    const nearestY = Math.max(py - ph/2, Math.min(cy, py + ph/2));
+    const dx = cx - nearestX, dy = cy - nearestY;
+    return dx*dx + dy*dy <= cr*cr;
+  }
+
+  let lastTime = performance.now();
+  function frame(now) {
+    const dt = Math.min(40, now - lastTime) / 1000;
+    lastTime = now;
+
+    if (running && now - lastSpawn > spawnInterval) {
+      spawn(); lastSpawn = now;
+    }
+
+    // Update dots
+    for (let i = dots.length-1; i >= 0; --i) {
+      const d = dots[i];
+      d.y += d.vy * dt;
+      // collision with paddle
+      if (rectCircleColl(paddle.x, paddle.y, paddle.w, paddle.h, d.x, d.y, d.r)) {
+        score += Math.round(1 + d.r/6);
+        dots.splice(i,1);
+        document.getElementById('score').textContent = 'Score: ' + score;
+        continue;
+      }
+      // miss -> remove
+      if (d.y - d.r > H + 40) {
+        // small penalty
+        score = Math.max(0, score - 1);
+        dots.splice(i,1);
+        document.getElementById('score').textContent = 'Score: ' + score;
+      }
+    }
+
+    // Draw
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0,0,W,H);
+
+    // paddle
+    ctx.fillStyle = '#7c3aed';
+    ctx.beginPath();
+    const px = paddle.x - paddle.w/2;
+    const py = paddle.y - paddle.h/2;
+    const r = 12;
+    // rounded rect
+    ctx.moveTo(px + r, py);
+    ctx.lineTo(px + paddle.w - r, py);
+    ctx.quadraticCurveTo(px + paddle.w, py, px + paddle.w, py + r);
+    ctx.lineTo(px + paddle.w, py + paddle.h - r);
+    ctx.quadraticCurveTo(px + paddle.w, py + paddle.h, px + paddle.w - r, py + paddle.h);
+    ctx.lineTo(px + r, py + paddle.h);
+    ctx.quadraticCurveTo(px, py + paddle.h, px, py + paddle.h - r);
+    ctx.lineTo(px, py + r);
+    ctx.quadraticCurveTo(px, py, px + r, py);
+    ctx.closePath();
+    ctx.fill();
+
+    // dots
+    for (const d of dots) {
+      ctx.beginPath();
+      const g = ctx.createRadialGradient(d.x - d.r*0.3, d.y - d.r*0.3, d.r*0.1, d.x, d.y, d.r);
+      g.addColorStop(0, '#fff7');
+      g.addColorStop(0.2, '#ffd166');
+      g.addColorStop(1, '#ff7b7b');
+      ctx.fillStyle = g;
+      ctx.arc(d.x, d.y, d.r, 0, Math.PI*2);
+      ctx.fill();
+    }
+
+    // subtle HUD
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(0, H-56, W, 56);
+
+    requestAnimationFrame(frame);
+  }
+
+  lastSpawn = performance.now();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

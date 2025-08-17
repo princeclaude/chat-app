@@ -1,0 +1,10 @@
+{
+  "functions": { "source": "functions" },
+  "hosting": {
+    "public": "build",
+    "rewrites": [
+      { "source": "/api/games", "function": "getGames" },
+      { "source": "", "destination": "/index.html" }
+    ]
+  }
+}

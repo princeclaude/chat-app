@@ -45,6 +45,8 @@ export default function ChatList() {
     profile?.accountPrivacy || "unlocked"
   );
 
+  const unsubRef = useRef(null);
+
   useEffect(() => {
     setAccountPrivacy(profile?.accountPrivacy || "unlocked");
   }, [profile?.accountPrivacy]);
@@ -509,7 +511,7 @@ export default function ChatList() {
   }
 
   return (
-    <div className="bg-white min-h-screen pb-16">
+    <div className="bg-white/45 min-h-screen pb-16">
       {/* Header */}
       <div className="flex justify-between items-center px-4 py-3 bg-white sticky top-0 z-50 shadow-sm">
         <div className="flex items-center gap-3">
