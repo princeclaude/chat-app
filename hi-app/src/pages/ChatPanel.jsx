@@ -59,6 +59,7 @@ export default function ChatPanel() {
   const [replyTo, setReplyTo] = useState(null);
   const [showPicModal, setShowPicModal] = useState(false);
   const [imageModalUrl, setImageModalUrl] = useState(null);
+  const [chatBgUrl, setChatBgUrl] = useState(null)
 
   
   const [isUploading, setIsUploading] = useState(false);
@@ -70,6 +71,16 @@ export default function ChatPanel() {
 
   // touch helpers to detect an intentional tap (mobile)
   const touchStartRef = useRef({});
+
+
+
+  useEffect(() => {
+    if (!currentEmail) return;
+    const unsub = onSnapshot(doc(db, "users", currentEmail), (snap) => {
+      setChatBgUrl(snap.data()?.chatBackground || null);
+    });
+    return unsub;
+  }, [currentEmail]);
 
 
   useEffect(() => {
@@ -778,6 +789,8 @@ export default function ChatPanel() {
     }
   };
 
+  
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
@@ -785,7 +798,15 @@ export default function ChatPanel() {
       </div>
     );
   }
-
+    const messageAreaStyle = chatBgUrl
+  ? {
+      // subtle white veil so bubbles remain readabl
+      backgroundImage: `url(${chatBgUrl})`,
+      backgroundSize: "cover",
+      backgroundPosition: "center",
+      backgroundRepeat: "no-repeat",
+}
+     :{};
   return (
     <div className="flex flex-col h-screen bg-white text-black">
       {/* Hidden file input */}
@@ -866,7 +887,9 @@ export default function ChatPanel() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 cursor-default">
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 cursor-default"
+        style={messageAreaStyle}
+       >
         {messages.length === 0 && (
           <div className="py-10 text-center text-gray-400 cursor-pointer">
             No messages yet. Send a chirp!

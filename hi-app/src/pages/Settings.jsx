@@ -18,6 +18,7 @@ import { useToast } from "../contexts/ToastContext";
 import { FaChevronLeft } from "react-icons/fa";
 import { updateProfile as updateAuthProfile } from "firebase/auth";
 
+
 export default function Settings() {
   const {
     updateProfilePic,
@@ -46,6 +47,19 @@ export default function Settings() {
 
   const navigate = useNavigate();
   const { showToast } = useToast();
+
+  const { fetchBackgrounds, setChatBackground } = useSettings();
+  const [backgrounds, setBackgrounds] = useState([]);
+  const [selectedBg, setSelectedBg] = useState(null); // for modal
+
+  useEffect(() => {
+    const fetch = async () => {
+      const bgs = await fetchBackgrounds();
+      setBackgrounds(bgs);
+    };
+    fetch();
+  }, []);
+
 
   useEffect(() => {
     if (!profilePicFile) {
@@ -298,7 +312,9 @@ export default function Settings() {
           </div>
         )}
 
-        <strong className="text-lg text-purple-700 font-bold">{pin || ""}</strong>
+        <strong className="text-lg text-purple-700 font-bold">
+          {pin || ""}
+        </strong>
 
         {/* File picker (styled) */}
         <div className="w-full flex flex-col items-center gap-3 mt-2">
@@ -357,8 +373,12 @@ export default function Settings() {
             </div>
 
             <div className="mt-2">
-              <div className="text-sm font-semibold text-gray-800">Select an image</div>
-              <div className="text-xs text-gray-500">Square images work best</div>
+              <div className="text-sm font-semibold text-gray-800">
+                Select an image
+              </div>
+              <div className="text-xs text-gray-500">
+                Square images work best
+              </div>
             </div>
 
             {/* Linear progress bar underneath the label area when uploading */}
@@ -367,7 +387,7 @@ export default function Settings() {
                 <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
                   <motion.div
                     initial={{ width: 0 }}
-                    animate={{ width: `${uploadProgress}% `}}
+                    animate={{ width: `${uploadProgress}% ` }}
                     transition={{ ease: "easeOut", duration: 0.4 }}
                     className="h-full bg-gradient-to-r from-purple-500 to-purple-700"
                   />
@@ -456,16 +476,71 @@ export default function Settings() {
           {savingNumber ? "Saving..." : "Add Number"}
         </button>
       </div>
+      {/* Background Selection Section */}
+      <div className="mt-6">
+        <h2 className="text-lg font-semibold mb-2">Choose Chat Background</h2>
+        <div className="grid grid-cols-3 gap-3">
+          {backgrounds.map((bg) => (
+            <div key={bg.id} className="cursor-pointer">
+              <img
+                src={bg.url}
+                alt={bg.name}
+                className="w-full h-24 object-cover rounded-lg shadow"
+                onClick={() => setSelectedBg(bg)} // open modal
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+      {selectedBg && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-4 max-w-md w-full relative">
+            {/* Close button */}
+            <button
+              onClick={() => setSelectedBg(null)}
+              className="absolute top-2 right-2 text-gray-600 hover:text-black"
+            >
+              ✕
+            </button>
+
+            {/* Enlarged Image */}
+            <img
+              src={selectedBg.url}
+              alt={selectedBg.name}
+              className="w-full h-64 object-cover rounded mb-4"
+            />
+
+            {/* Set Background Button */}
+            <button
+              onClick={async () => {
+                await setChatBackground(selectedBg.url);
+                showToast("Chat background updated!", "success");
+                setSelectedBg(null); // close modal
+              }}
+              className="bg-purple-600 text-white px-4 py-2 rounded w-full"
+            >
+              Set as Chat Background
+            </button>
+          </div>
+         
+        </div>
+      )}
 
       {/* Logout & Delete */}
       <div className="flex flex-col gap-2 pt-4">
-        <button onClick={handleLogout} className="bg-gray-800 text-white px-4 py-2 rounded">
+        <button
+          onClick={handleLogout}
+          className="bg-gray-800 text-white px-4 py-2 rounded"
+        >
           Logout
         </button>
-        <button onClick={deleteAccount} className="bg-red-600 text-white px-4 py-2 rounded">
+        <button
+          onClick={deleteAccount}
+          className="bg-red-600 text-white px-4 py-2 rounded"
+        >
           Delete Account
         </button>
       </div>
     </motion.div>
-);
+  );
 }
