@@ -2,10 +2,13 @@
 import React, { useEffect, useState } from "react";
 import { db } from "../firebase";
 import { doc, onSnapshot } from "firebase/firestore";
-import { answerCall, endCall } from "../utils/callFunctions"; // from the functions we defined earlier
-import { endWebRTC } from "../utils/webrtc";
-
-
+import { answerCall, endCall } from "../utils/callFunctions";
+import {
+  initWebRTC,
+  createAnswer,
+  setupIceCandidates,
+  endWebRTC,
+} from "../utils/webrtc";
 
 const ReceiverScreen = ({ callId }) => {
   const [callData, setCallData] = useState(null);
@@ -42,7 +45,7 @@ const ReceiverScreen = ({ callId }) => {
       {/* Caller PIN */}
       <h2 className="text-xl font-bold mb-2">{callData.callerPin}</h2>
 
-      {/* Status (e.g. Incoming call / Accepted / Missed) */}
+      {/* Status */}
       <p className="text-gray-300 mb-6">
         {callData.status === "ringing"
           ? "Incoming Call..."
@@ -53,14 +56,13 @@ const ReceiverScreen = ({ callId }) => {
           : "Call Ended"}
       </p>
 
-      {/* Action Buttons */}
+      {/* Buttons */}
       {callData.status === "ringing" && (
         <div className="flex gap-6">
-          {/* Accept Button */}
+          {/* Accept */}
           <button
             onClick={async () => {
-              await answerCall(callId);
-
+              await answerCall(callId); // update Firestore status
               const { localStream, remoteStream } = await initWebRTC();
               document.getElementById("localAudio").srcObject = localStream;
               document.getElementById("remoteAudio").srcObject = remoteStream;
@@ -72,12 +74,11 @@ const ReceiverScreen = ({ callId }) => {
             ✅ Accept
           </button>
 
-          {/* Reject Button */}
+          {/* Reject */}
           <button
-                      onClick={() => {
-                          endCall();
-                          endWebRTC();
-                          
+            onClick={() => {
+              endCall(callId);
+              endWebRTC();
             }}
             className="bg-red-500 hover:bg-red-600 text-white rounded-full p-4"
           >
@@ -88,15 +89,18 @@ const ReceiverScreen = ({ callId }) => {
 
       {callData.status === "accepted" && (
         <div className="flex gap-6">
-          {/* End Button */}
+          {/* End */}
           <button
-            onClick={() => endCall(callId)}
+            onClick={() => {
+              endCall(callId);
+              endWebRTC();
+            }}
             className="bg-red-500 hover:bg-red-600 text-white rounded-full p-4"
           >
             ⏹ End
           </button>
 
-          {/* Volume Button */}
+          {/* Volume */}
           <button
             onClick={() => alert("Volume control not yet implemented")}
             className="bg-gray-700 hover:bg-gray-600 text-white rounded-full p-4"

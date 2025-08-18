@@ -11,11 +11,16 @@ import {
   addDoc,
   updateDoc,
   doc,
-  serverTimestamp
+  serverTimestamp,
 } from "firebase/firestore";
 
-import { initWebRTC } from "../utils/webrtc";
-import { endWebRTC } from "../utils/webrtc";
+import {
+  initWebRTC,
+  createOffer,
+  setupIceCandidates,
+  listenForAnswer,
+  endWebRTC,
+} from "../utils/webrtc";
 
 export default function CallerScreen() {
   const { receiverPin } = useParams();
@@ -23,7 +28,6 @@ export default function CallerScreen() {
   const navigate = useNavigate();
 
   const callerPin = state?.callerPin || "unknown";
-
   const [receiver, setReceiver] = useState(state?.receiver || {});
   const [speakerOn, setSpeakerOn] = useState(false);
   const [dots, setDots] = useState("");
@@ -31,9 +35,8 @@ export default function CallerScreen() {
   const [callId, setCallId] = useState(null);
 
   const audioRef = useRef(null);
-  
 
-  // ✅ Log call once when screen opens
+  // 🔹 Log call
   useEffect(() => {
     const logCall = async () => {
       try {
@@ -41,7 +44,7 @@ export default function CallerScreen() {
           callerPin,
           receiverPin,
           participants: [callerPin, receiverPin],
-          status: "ringing", // standardized
+          status: "ringing",
           createdAt: serverTimestamp(),
         });
         setCallId(docRef.id);
@@ -52,7 +55,7 @@ export default function CallerScreen() {
     logCall();
   }, [callerPin, receiverPin]);
 
-  // ✅ Listen to receiver's call status (from users collection)
+  // 🔹 Listen to receiver status
   useEffect(() => {
     const q = query(collection(db, "users"), where("pin", "==", receiverPin));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -70,18 +73,20 @@ export default function CallerScreen() {
             }
 
             (async () => {
- const { localStream, remoteStream } = await initWebRTC();
-document.getElementById("localAudio").srcObject = localStream;
-document.getElementById("remoteAudio").srcObject = remoteStream;
-await createOffer(callId);
-setupIceCandidates(callId);
-})();
+              const { localStream, remoteStream } = await initWebRTC();
+              document.getElementById("localAudio").srcObject = localStream;
+              document.getElementById("remoteAudio").srcObject = remoteStream;
+              await createOffer(callId);
+              setupIceCandidates(callId);
+              listenForAnswer(callId); // 🔹 wait for receiver’s answer
+            })();
           }
 
           if (userData.callStatus === "ended") {
             if (callId) {
               updateDoc(doc(db, "calls", callId), { status: "ended" });
             }
+            endWebRTC();
             navigate(-1);
           }
         }
@@ -91,7 +96,7 @@ setupIceCandidates(callId);
     return () => unsubscribe();
   }, [receiverPin, navigate, callId]);
 
-  // Animate "Calling..."
+  // 🔹 Animate "Calling..."
   useEffect(() => {
     const interval = setInterval(() => {
       setDots((prev) => (prev.length < 3 ? prev + "." : ""));
@@ -99,7 +104,7 @@ setupIceCandidates(callId);
     return () => clearInterval(interval);
   }, []);
 
-  // ✅ Play ringtone
+  // 🔹 Ringtone
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.loop = true;
@@ -115,31 +120,27 @@ setupIceCandidates(callId);
     };
   }, []);
 
-  // ✅ Auto-end after 30s if still ringing
+  // 🔹 Auto-miss after 30s
   useEffect(() => {
     if (callStatus === "ringing" && callId) {
       const timer = setTimeout(() => {
         updateDoc(doc(db, "calls", callId), {
           status: "missed",
           endedAt: serverTimestamp(),
-        })
-          .then(() => {
-            if (audioRef.current) {
-              audioRef.current.pause();
-            }
-            navigate(-1);
-          })
-          .catch((err) => console.error("Failed to auto-end call:", err));
+        }).then(() => {
+          if (audioRef.current) {
+            audioRef.current.pause();
+          }
+          navigate(-1);
+        });
       }, 30000);
 
       return () => clearTimeout(timer);
     }
   }, [callStatus, callId, navigate]);
 
-  // ✅ Speaker toggle
   const toggleSpeaker = () => setSpeakerOn((prev) => !prev);
 
-  // ✅ End call safely (preserves pins)
   const endCall = () => {
     if (audioRef.current) {
       audioRef.current.pause();
@@ -194,9 +195,10 @@ setupIceCandidates(callId);
         >
           <FaPhoneSlash className="text-xl" />
         </button>
+
         <audio id="localAudio" autoPlay muted hidden />
         <audio id="remoteAudio" autoPlay hidden />
       </div>
-    </div>
-  );
+ </div>
+);
 }

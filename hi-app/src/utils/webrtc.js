@@ -1,57 +1,47 @@
 // src/utils/webrtc.js
 import { db } from "../firebase";
-import { collection, doc, setDoc, addDoc, getDoc, onSnapshot, updateDoc } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  updateDoc,
+  addDoc,
+} from "firebase/firestore";
 
-let peerConnection;
+let pc;
 let localStream;
 let remoteStream;
 
-// ICE servers (use Google STUN for now; you can later add TURN)
+// ICE servers (use STUN, add TURN later if needed)
 const servers = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
 };
 
-// End and cleanup WebRTC
-export const endWebRTC = () => {
-  if (peerConnection) {
-    peerConnection.close();
-    peerConnection = null;
-  }
-
-  if (localStream) {
-    localStream.getTracks().forEach((track) => track.stop());
-    localStream = null;
-  }
-
-  if (remoteStream) {
-    remoteStream.getTracks().forEach((track) => track.stop());
-    remoteStream = null;
-}
-};
+// 🔹 Initialize peer connection
 export const initWebRTC = async () => {
-  peerConnection = new RTCPeerConnection(servers);
+  pc = new RTCPeerConnection(servers);
 
-  // Setup streams
+  // Local mic audio
   localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+
+  // Remote audio
   remoteStream = new MediaStream();
-
-  localStream.getTracks().forEach((track) => {
-    peerConnection.addTrack(track, localStream);
-  });
-
-  peerConnection.ontrack = (event) => {
+  pc.ontrack = (event) => {
     event.streams[0].getTracks().forEach((track) => {
       remoteStream.addTrack(track);
     });
   };
 
-  return { peerConnection, localStream, remoteStream };
+  return { pc, localStream, remoteStream };
 };
 
-// Caller: create offer
+// 🔹 Caller creates an offer
 export const createOffer = async (callId) => {
-  const offer = await peerConnection.createOffer();
-  await peerConnection.setLocalDescription(offer);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
 
   await updateDoc(doc(db, "calls", callId), {
     offer: {
@@ -61,16 +51,18 @@ export const createOffer = async (callId) => {
   });
 };
 
-// Receiver: create answer
+// 🔹 Receiver answers
 export const createAnswer = async (callId) => {
   const callRef = doc(db, "calls", callId);
   const callDoc = await getDoc(callRef);
   const offer = callDoc.data().offer;
 
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+  if (!offer) throw new Error("No offer found for this call");
 
-  const answer = await peerConnection.createAnswer();
-  await peerConnection.setLocalDescription(answer);
+  await pc.setRemoteDescription(new RTCSessionDescription(offer));
+
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
 
   await updateDoc(callRef, {
     answer: {
@@ -80,26 +72,47 @@ export const createAnswer = async (callId) => {
   });
 };
 
-// Listen for ICE candidates
+// 🔹 Listen for answer (caller side)
+export const listenForAnswer = (callId) => {
+  const callRef = doc(db, "calls", callId);
+  onSnapshot(callRef, (snapshot) => {
+    const data = snapshot.data();
+    if (data?.answer && !pc.currentRemoteDescription) {
+      pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+    }
+  });
+};
+
+// 🔹 Setup ICE candidates
 export const setupIceCandidates = (callId) => {
   const callRef = doc(db, "calls", callId);
   const candidatesCollection = collection(callRef, "candidates");
 
-  peerConnection.onicecandidate = async (event) => {
- if (event.candidate) {
-   await addDoc(candidatesCollection, event.candidate.toJSON());
- }
- };
-    
-    
+  pc.onicecandidate = async (event) => {
+    if (event.candidate) {
+      await addDoc(candidatesCollection, event.candidate.toJSON());
+    }
+  };
 
-  // Listen for remote ICE candidates
   onSnapshot(candidatesCollection, (snapshot) => {
     snapshot.docChanges().forEach((change) => {
       if (change.type === "added") {
         let candidate = new RTCIceCandidate(change.doc.data());
-        peerConnection.addIceCandidate(candidate);
+        pc.addIceCandidate(candidate);
       }
     });
   });
+};
+
+// 🔹 End call
+export const endWebRTC = () => {
+  if (localStream) {
+    localStream.getTracks().forEach((t) => t.stop());
+  }
+  if (pc) {
+    pc.close();
+  }
+  pc = null;
+  localStream = null;
+  remoteStream = null;
 };
