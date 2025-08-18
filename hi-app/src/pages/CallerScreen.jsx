@@ -14,10 +14,15 @@ import {
   serverTimestamp
 } from "firebase/firestore";
 
+import { initWebRTC } from "../utils/webrtc";
+import { endWebRTC } from "../utils/webrtc";
+
 export default function CallerScreen() {
   const { receiverPin } = useParams();
   const { state } = useLocation();
   const navigate = useNavigate();
+
+  const callerPin = state?.callerPin || "unknown";
 
   const [receiver, setReceiver] = useState(state?.receiver || {});
   const [speakerOn, setSpeakerOn] = useState(false);
@@ -26,17 +31,18 @@ export default function CallerScreen() {
   const [callId, setCallId] = useState(null);
 
   const audioRef = useRef(null);
+  
 
-  // Log call when screen opens
+  // ✅ Log call once when screen opens
   useEffect(() => {
     const logCall = async () => {
       try {
         const docRef = await addDoc(collection(db, "calls"), {
-          callerPin: state?.callerPin || "unknown",
+          callerPin,
           receiverPin,
-          participants: [state?.callerPin || "unknown", receiverPin],
-          status: "outgoing", // start as outgoing
-          timestamp: serverTimestamp(),
+          participants: [callerPin, receiverPin],
+          status: "ringing", // standardized
+          createdAt: serverTimestamp(),
         });
         setCallId(docRef.id);
       } catch (err) {
@@ -44,9 +50,9 @@ export default function CallerScreen() {
       }
     };
     logCall();
-  }, [receiverPin, state?.callerPin]);
+  }, [callerPin, receiverPin]);
 
-  // Listen to receiver's call status in Firestore
+  // ✅ Listen to receiver's call status (from users collection)
   useEffect(() => {
     const q = query(collection(db, "users"), where("pin", "==", receiverPin));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -60,8 +66,16 @@ export default function CallerScreen() {
           if (userData.callStatus === "accepted") {
             if (audioRef.current) audioRef.current.pause();
             if (callId) {
-              updateDoc(doc(db, "calls", callId), { status: "received" });
+              updateDoc(doc(db, "calls", callId), { status: "accepted" });
             }
+
+            (async () => {
+ const { localStream, remoteStream } = await initWebRTC();
+document.getElementById("localAudio").srcObject = localStream;
+document.getElementById("remoteAudio").srcObject = remoteStream;
+await createOffer(callId);
+setupIceCandidates(callId);
+})();
           }
 
           if (userData.callStatus === "ended") {
@@ -85,7 +99,7 @@ export default function CallerScreen() {
     return () => clearInterval(interval);
   }, []);
 
-  // Play ringtone
+  // ✅ Play ringtone
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.loop = true;
@@ -101,11 +115,10 @@ export default function CallerScreen() {
     };
   }, []);
 
-  // Auto-end after 30 seconds if still ringing
+  // ✅ Auto-end after 30s if still ringing
   useEffect(() => {
     if (callStatus === "ringing" && callId) {
       const timer = setTimeout(() => {
-        // If still ringing after 30s, mark as missed
         updateDoc(doc(db, "calls", callId), {
           status: "missed",
           endedAt: serverTimestamp(),
@@ -123,18 +136,21 @@ export default function CallerScreen() {
     }
   }, [callStatus, callId, navigate]);
 
+  // ✅ Speaker toggle
   const toggleSpeaker = () => setSpeakerOn((prev) => !prev);
 
+  // ✅ End call safely (preserves pins)
   const endCall = () => {
     if (audioRef.current) {
       audioRef.current.pause();
     }
     if (callId) {
-      // If never accepted, mark as missed
       updateDoc(doc(db, "calls", callId), {
         status: callStatus === "ringing" ? "missed" : "ended",
+        endedAt: serverTimestamp(),
       });
     }
+    endWebRTC();
     navigate(-1);
   };
 
@@ -178,6 +194,8 @@ export default function CallerScreen() {
         >
           <FaPhoneSlash className="text-xl" />
         </button>
+        <audio id="localAudio" autoPlay muted hidden />
+        <audio id="remoteAudio" autoPlay hidden />
       </div>
     </div>
   );
