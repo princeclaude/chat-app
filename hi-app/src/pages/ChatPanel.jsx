@@ -1203,7 +1203,62 @@ export default function ChatPanel() {
             loading="lazy"
             referrerPolicy="no-referrer"
           />
-          
+        </div>
+      )}
+
+      {showPicModal && otherUser?.profilePic && (
+        <div
+          className="fixed inset-0 z-60 flex items-center justify-center bg-black/60"
+          onClick={closePicModal}
+        >
+          <div
+            className="max-w-[92%] max-h-[86%] p-4 relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              aria-label="Close"
+              onClick={closePicModal}
+              className="absolute top-3 right-3 z-70 text-white text-lg w-10 h-10 bg-purple-400 rounded-full p-1 hover:bg-purple-700"
+            >
+              ✕
+            </button>
+            <div className="w-full h-full flex items-center justify-center">
+              <img
+                src={otherUser.profilePic}
+                alt="Profile zoom"
+                className="w-72 h-72 rounded-full mt-4 object-cover border-4 border-purple-500 shadow-lg transform transition-transform duration-400 ease-out scale-100 animate-zoom-in"
+                style={{
+                  animation: "zoomIn 320ms cubic-bezier(.2,.9,.3,1) both",
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image modal (full-size) */}
+      {imageModalUrl && (
+        <div
+          className="fixed inset-0 z-70 flex items-center justify-center bg-black/70"
+          onClick={closeImageModal}
+        >
+          <div
+            className="max-w-[95%] max-h-[90%] relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={closeImageModal}
+              aria-label="Close image"
+              className="absolute top-2 right-2  z-80 bg-purple-400 text-white rounded-full p-2"
+            >
+              ✕
+            </button>
+            <img
+              src={imageModalUrl}
+              alt="Full"
+              className="max-w-full max-h-[80vh] rounded-lg shadow-2xl object-contain"
+            />
+          </div>
         </div>
       )}
 
