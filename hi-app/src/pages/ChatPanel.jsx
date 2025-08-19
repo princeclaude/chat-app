@@ -89,12 +89,6 @@ export default function ChatPanel() {
       url: "/games/tic-tac-toe/index.html",
       thumbnail: "/games/tic-tac-toe.png",
     },
-
-    // {
-    //   id: "card-battle",
-    //   title: "Card Battle",
-    //   url: "/games/card-battle/index.html",
-    // },
   ]);
 
   // touch helpers to detect an intentional tap (mobile)
@@ -110,331 +104,166 @@ export default function ChatPanel() {
   }, [convoId]);
 
   // Forward game state <-> iframe (postMessage) and handle moves from iframe
-  useEffect(() => {
-    if (!convoId) return;
+   useEffect(() => {
+     if (!convoId) return;
 
-    const currentPin = profile?.pin || currentEmail;
-    const otherPin = otherUser?.pin || otherKey;
+     const currentPin = profile?.pin || currentEmail;
+     const otherPin = otherUser?.pin || otherKey;
 
-    // handle incoming postMessages from iframe
-    const onMessage = (ev) => {
-      const data = ev?.data || {};
-      if (!data || !data.type) return;
+     // handle incoming postMessages from iframe
+     const onMessage = (ev) => {
+       const data = ev?.data || {};
+       if (!data || !data.type) return;
 
-      if (data.type === "requestGameInit") {
-        // reply with pins only
-        const payload = {
-          type: "gameInit",
-          convoId,
-          currentPin,
-          otherPin,
-        };
-        gameIframeRef.current?.contentWindow?.postMessage(payload, "*");
-        return;
-      }
+       if (data.type === "requestGameInit") {
+         // reply with pins only
+         const payload = {
+           type: "gameInit",
+           convoId,
+           currentPin,
+           otherPin,
+         };
+         gameIframeRef.current?.contentWindow?.postMessage(payload, "*");
+         return;
+       }
 
-      if (data.type === "makeMove" && typeof data.index === "number") {
-        const gameDocRef = doc(
-          db,
-          "conversations",
-          convoId,
-          "game",
-          "tic-tac-toe"
-        );
-        (async () => {
-          try {
-            const snap = await getDoc(gameDocRef);
-            const cur = snap.exists() ? snap.data() : null;
-            if (!cur) return;
-            // Validate: move from correct pin and cell empty
-            if (cur.turn !== data.player) return;
-            const board = Array.isArray(cur.board)
-              ? [...cur.board]
-              : Array(9).fill(null);
-            if (board[data.index] !== null) return;
+       if (data.type === "makeMove" && typeof data.index === "number") {
+         const gameDocRef = doc(
+           db,
+           "conversations",
+           convoId,
+           "game",
+           "tic-tac-toe"
+         );
+         (async () => {
+           try {
+             const snap = await getDoc(gameDocRef);
+             const cur = snap.exists() ? snap.data() : null;
+             if (!cur) return;
+             // Validate: move from correct pin and cell empty
+             if (cur.turn !== data.player) return;
+             const board = Array.isArray(cur.board)
+               ? [...cur.board]
+               : Array(9).fill(null);
+             if (board[data.index] !== null) return;
 
-            board[data.index] = data.player;
+             board[data.index] = data.player;
 
-            // winner detection
-            const wins = [
-              [0, 1, 2],
-              [3, 4, 5],
-              [6, 7, 8],
-              [0, 3, 6],
-              [1, 4, 7],
-              [2, 5, 8],
-              [0, 4, 8],
-              [2, 4, 6],
-            ];
-            let winner = null;
-            for (const [a, b, c] of wins) {
-              if (board[a] && board[a] === board[b] && board[a] === board[c]) {
-                winner = board[a];
-                break;
-              }
-            }
+             // winner detection
+             const wins = [
+               [0, 1, 2],
+               [3, 4, 5],
+               [6, 7, 8],
+               [0, 3, 6],
+               [1, 4, 7],
+               [2, 5, 8],
+               [0, 4, 8],
+               [2, 4, 6],
+             ];
+             let winner = null;
+             for (const [a, b, c] of wins) {
+               if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+                 winner = board[a];
+                 break;
+               }
+             }
 
-            const nextPlayer =
-              cur.players && cur.players[0] === cur.turn
-                ? cur.players[1]
-                : cur.players[0];
-            const nextState = {
-              board,
-              turn: winner ? cur.turn : nextPlayer,
-              updatedAt: serverTimestamp(),
-            };
+             const nextPlayer =
+               cur.players && cur.players[0] === cur.turn
+                 ? cur.players[1]
+                 : cur.players[0];
+             const nextState = {
+               board,
+               turn: winner ? cur.turn : nextPlayer,
+               updatedAt: serverTimestamp(),
+             };
 
-            if (winner) {
-              const scores = { ...(cur.scores || {}) };
-              scores[winner] = (scores[winner] || 0) + 1;
-              nextState.scores = scores;
-              nextState.winner = winner;
-              nextState.round = (cur.round || 1) + 1;
-            } else if (board.every(Boolean) && !winner) {
-              nextState.winner = "draw";
-              nextState.round = (cur.round || 1) + 1;
-            } else {
-              nextState.winner = null;
-            }
+             if (winner) {
+               const scores = { ...(cur.scores || {}) };
+               scores[winner] = (scores[winner] || 0) + 1;
+               nextState.scores = scores;
+               nextState.winner = winner;
+               nextState.round = (cur.round || 1) + 1;
+             } else if (board.every(Boolean) && !winner) {
+               nextState.winner = "draw";
+               nextState.round = (cur.round || 1) + 1;
+             } else {
+               nextState.winner = null;
+             }
 
-            await updateDoc(gameDocRef, nextState);
-          } catch (err) {
-            console.error("Failed to apply move:", err);
-          }
-        })();
-        return;
-      }
+             await updateDoc(gameDocRef, nextState);
+           } catch (err) {
+             console.error("Failed to apply move:", err);
+           }
+         })();
+         return;
+       }
 
-      // inside your onMessage in ChatPanel's useEffect
-      if (data.type === "requestGameInit") {
-        const payload = { type: "gameInit", convoId, currentPin, otherPin };
-        gameIframeRef.current?.contentWindow?.postMessage(payload, "*");
-        return;
-      }
+       if (data.type === "resetRound") {
+         const gameDocRef = doc(
+           db,
+           "conversations",
+           convoId,
+           "game",
+           "tic-tac-toe"
+         );
+         (async () => {
+           try {
+             const snap = await getDoc(gameDocRef);
+             const cur = snap.exists() ? snap.data() : null;
+             if (!cur) return;
+             const players = cur.players || [currentPin, otherPin];
+             // alternate starting player each round (round parity)
+             const nextStarter = players[(cur.round || 1) % 2 ? 1 : 0];
+             await updateDoc(gameDocRef, {
+               board: Array(9).fill(null),
+               turn: nextStarter,
+               winner: null,
+               updatedAt: serverTimestamp(),
+               round: (cur.round || 1) + 1,
+             });
+           } catch (err) {
+             console.error("resetRound failed:", err);
+           }
+         })();
+         return;
+       }
+     };
 
-      if (
-        data.type === "drawCard" ||
-        data.type === "playCard" ||
-        data.type === "resetRound"
-      ) {
-        const gameDocRef = doc(
-          db,
-          "conversations",
-          convoId,
-          "game",
-          "card-battle"
-        );
+     window.addEventListener("message", onMessage);
 
-        (async () => {
-          try {
-            const snap = await getDoc(gameDocRef);
-            if (!snap.exists()) return;
-            const cur = snap.data();
+     // Subscribe to Firestore game doc and forward to iframe
+     if (gameUnsubRef.current) {
+       try {
+         gameUnsubRef.current();
+       } catch (e) {}
+       gameUnsubRef.current = null;
+     }
+     const gameDocRef = doc(
+       db,
+       "conversations",
+       convoId,
+       "game",
+       "tic-tac-toe"
+     );
+     gameUnsubRef.current = onSnapshot(gameDocRef, (snap) => {
+       const data = snap.exists() ? snap.data() : null;
+       const payload = { type: "gameState", data };
+       gameIframeRef.current?.contentWindow?.postMessage(payload, "*");
+     });
 
-            const player = data.player;
-            // basic guards
-            if (!cur.players || !cur.players.includes(player)) return;
+     return () => {
+       window.removeEventListener("message", onMessage);
+       if (gameUnsubRef.current) {
+         try {
+           gameUnsubRef.current();
+         } catch (e) {}
+         gameUnsubRef.current = null;
+       }
+     };
+     // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [convoId, profile, otherUser, otherKey]);
 
-            // DRAW
-            if (data.type === "drawCard") {
-              if (cur.turn !== player) return; // only on your turn
-              if (!cur.deck || cur.deck.length === 0) return;
-              // draw top
-              const card = cur.deck[0];
-              const newDeck = cur.deck.slice(1);
-              const hands = { ...(cur.hands || {}) };
-              hands[player] = (hands[player] || []).concat([card]);
-
-              await updateDoc(gameDocRef, {
-                deck: newDeck,
-                hands,
-                updatedAt: serverTimestamp(),
-              });
-              return;
-            }
-
-            // PLAY
-            if (data.type === "playCard") {
-              const card = data.card;
-              if (cur.turn !== player) return;
-              const hands = { ...(cur.hands || {}) };
-              const playerHand = [...(hands[player] || [])];
-              // ensure the card exists in player's hand (match by code)
-              const idx = playerHand.findIndex((c) => c.code === card.code);
-              if (idx === -1) return;
-
-              playerHand.splice(idx, 1);
-              hands[player] = playerHand;
-
-              const played = [...(cur.played || []), { player, card }];
-              const update = {
-                hands,
-                played,
-                updatedAt: serverTimestamp(),
-              };
-
-              // If both players played -> resolve
-              if (played.length % 2 === 0) {
-                // take last two
-                const lastTwo = played.slice(-2);
-                const p1 = lastTwo[0],
-                  p2 = lastTwo[1];
-
-                // convert suits and ranks
-                const getRankIndex = (r) => {
-                  const order = [
-                    "2",
-                    "3",
-                    "4",
-                    "5",
-                    "6",
-                    "7",
-                    "8",
-                    "9",
-                    "10",
-                    "J",
-                    "Q",
-                    "K",
-                    "A",
-                  ];
-                  return order.indexOf(r);
-                };
-                const r1 = getRankIndex(p1.card.rank);
-                const r2 = getRankIndex(p2.card.rank);
-
-                let roundWinner = null;
-                if (r1 > r2) roundWinner = p1.player;
-                else if (r2 > r1) roundWinner = p2.player;
-                else {
-                  // tie -> compare suits order S>H>D>C (arbitrary)
-                  const suitsOrder = { S: 4, H: 3, D: 2, C: 1 };
-                  const s1 = suitsOrder[p1.card.suit] || 0;
-                  const s2 = suitsOrder[p2.card.suit] || 0;
-                  if (s1 > s2) roundWinner = p1.player;
-                  else if (s2 > s1) roundWinner = p2.player;
-                  else roundWinner = null;
-                }
-
-                // update scores and discard played cards
-                const discard = [...(cur.discard || []), p1.card, p2.card];
-                const scores = { ...(cur.scores || {}) };
-                if (roundWinner) {
-                  scores[roundWinner] = (scores[roundWinner] || 0) + 1;
-                }
-
-                // next turn: winner (or next player if tie/no winner)
-                const nextTurn =
-                  roundWinner ||
-                  cur.players.find((p) => p !== cur.turn) ||
-                  cur.players[0];
-
-                update.discard = discard;
-                update.scores = scores;
-                update.played = []; // clear table
-                update.turn = nextTurn;
-                update.round = (cur.round || 1) + 1;
-
-                // if deck empty and both hands empty -> finalize
-                const noCardsLeft =
-                  (!newDeck || newDeck.length === 0) &&
-                  Object.values(hands || {}).every((h) => h.length === 0);
-                if (noCardsLeft) {
-                  // decide final winner
-                  const scoresArr = Object.entries(scores || {});
-                  scoresArr.sort((a, b) => b[1] - a[1]);
-                  const finalWinner =
-                    scoresArr.length && scoresArr[0][1] !== scoresArr[1]?.[1]
-                      ? scoresArr[0][0]
-                      : "draw";
-                  update.status = "finished";
-                  update.winner = finalWinner;
-                }
-              } else {
-                // only one card on table so far -> change turn to the other player
-                const other = (cur.players || []).find((p) => p !== player);
-                update.turn = other || player;
-              }
-
-              await updateDoc(gameDocRef, update);
-              return;
-            }
-
-            // RESET ROUND
-            if (data.type === "resetRound") {
-              // clear table, increment round, optionally redeal small draws from deck if present
-              const newPlayed = [];
-              await updateDoc(gameDocRef, {
-                played: newPlayed,
-                round: (cur.round || 1) + 1,
-                updatedAt: serverTimestamp(),
-              });
-              return;
-            }
-          } catch (err) {
-            console.error("card-battle handler error", err);
-          }
-        })();
-        return;
-      }
-
-      if (data.type === "resetRound") {
-        const gameDocRef = doc(
-          db,
-          "conversations",
-          convoId,
-          "game",
-          "tic-tac-toe"
-        );
-        (async () => {
-          try {
-            const snap = await getDoc(gameDocRef);
-            const cur = snap.exists() ? snap.data() : null;
-            if (!cur) return;
-            const players = cur.players || [currentPin, otherPin];
-            // alternate starting player each round (round parity)
-            const nextStarter = players[(cur.round || 1) % 2 ? 1 : 0];
-            await updateDoc(gameDocRef, {
-              board: Array(9).fill(null),
-              turn: nextStarter,
-              winner: null,
-              updatedAt: serverTimestamp(),
-              round: (cur.round || 1) + 1,
-            });
-          } catch (err) {
-            console.error("resetRound failed:", err);
-          }
-        })();
-        return;
-      }
-    };
-
-    window.addEventListener("message", onMessage);
-
-    // Subscribe to Firestore game doc and forward to iframe
-    if (gameUnsubRef.current) {
-      try {
-        gameUnsubRef.current();
-      } catch (e) {}
-      gameUnsubRef.current = null;
-    }
-    const gameDocRef = doc(db, "conversations", convoId, "game", "tic-tac-toe");
-    gameUnsubRef.current = onSnapshot(gameDocRef, (snap) => {
-      const data = snap.exists() ? snap.data() : null;
-      const payload = { type: "gameState", data };
-      gameIframeRef.current?.contentWindow?.postMessage(payload, "*");
-    });
-
-    return () => {
-      window.removeEventListener("message", onMessage);
-      if (gameUnsubRef.current) {
-        try {
-          gameUnsubRef.current();
-        } catch (e) {}
-        gameUnsubRef.current = null;
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [convoId, profile, otherUser, otherKey]);
 
   useEffect(() => {
     if (!currentEmail) return;
@@ -474,37 +303,52 @@ export default function ChatPanel() {
     touchStartRef.current[id] = { x: t.clientX, y: t.clientY, t: Date.now() };
   };
 
-  // inside ChatPanel.jsx — replace your current startGame function
   const startGame = async (game) => {
-    const url = game?.url; // local file in /public/games/...
-    if (!convoId || !currentEmail || !url) {
-      showToast?.("Can't start game (missing data)", "default", 1400);
-      return;
-    }
-    try {
-      // derive player pins (prefer stored pin if available)
-      const myPin = profile?.pin || currentEmail;
-      const otherPinVal = otherUser?.pin || otherKey;
-      const players = [myPin, otherPinVal];
+  const url = game?.url; // local file in /public/games/...
+  if (!convoId || !currentEmail || !url) {
+    showToast?.("Can't start game (missing data)", "default", 1400);
+    return;
+  }
+  try {
+    const fullUrl = url.includes("?") ? `${url}&convoId=${encodeURIComponent(convoId)}` : `${url}?convoId=${encodeURIComponent(convoId)}`;
 
-      await setDoc(
-        doc(db, "conversations", convoId, "game", "current"),
-        {
-          title: game.title || "Game",
-          url, // <-- local URL
-          startedAt: serverTimestamp(),
-          startedBy: currentEmail,
-          convoId,
-          players, // <-- IMPORTANT: pass pins to the game
-        },
-        { merge: true }
-      );
-      closeGamePicker();
-    } catch (e) {
-      console.error("startGame error", e);
-      showToast?.("Couldn't start game", "default", 1500);
+    // Write "current" game meta (so UI shows the iframe)
+    await setDoc(
+      doc(db, "conversations", convoId, "game", "current"),
+      {
+        title: game.title || "Game",
+        url: fullUrl,
+        startedAt: serverTimestamp(),
+        startedBy: currentEmail,
+      },
+      { merge: true }
+    );
+
+    // Use pins only for players
+    const currentPin = profile?.pin || currentEmail; // prefer profile.pin; fallback to email if pin missing
+    const otherPin = otherUser?.pin || otherKey;
+
+    // If this is our tic-tac-toe game, create an initial game doc (pins only)
+    if ((game.id || "").toLowerCase() === "tic-tac-toe" || (game.title || "").toLowerCase().includes("tic-tac-toe")) {
+      const players = [currentPin, otherPin];
+      const initial = {
+        board: Array(9).fill(null),
+        turn: players[0],             // starter = the one who started the game
+        players,
+        scores: { [players[0]]: 0, [players[1]]: 0 },
+        round: 1,
+        winner: null,
+        updatedAt: serverTimestamp(),
+      };
+      await setDoc(doc(db, "conversations", convoId, "game", "tic-tac-toe"), initial, { merge: true });
     }
-  };
+
+    closeGamePicker();
+  } catch (e) {
+    console.error("startGame error", e);
+    showToast?.("Couldn't start game", "default", 1500);
+}
+};
   const endGame = async () => {
     if (!convoId) return;
     try {
