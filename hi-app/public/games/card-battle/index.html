@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Card Battle</title>
+<style>
+  :root { --bg:#06314f; --card:#fff; --accent:#7c3aed; --table:#0f3a4d; }
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg),#031826);color:#fff;font-family:Inter,system-ui,Segoe UI,Roboto,Arial}
+  .table{display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px;height:100vh;box-sizing:border-box}
+  .header{display:flex;gap:12px;align-items:center}
+  .avatar{width:56px;height:56px;border-radius:50%;background:#0b2736;display:flex;align-items:center;justify-content:center;font-weight:700}
+  .pins{font-size:14px}
+  .board{flex:1;width:100%;max-width:900px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+  .row{display:flex;gap:16px;align-items:center;justify-content:center;width:100%}
+  .hand{display:flex;gap:8px;align-items:center;justify-content:center;min-height:90px}
+  .card{
+    width:72px;height:100px;border-radius:10px;background:linear-gradient(180deg,#fff, #f7f7f7);color:#111;
+    display:flex;flex-direction:column;justify-content:space-between;padding:8px;box-shadow:0 6px 14px rgba(0,0,0,0.45);
+    transform-origin:center; user-select:none; cursor:pointer;
+  }
+  .card.small{width:56px;height:80px;font-size:13px}
+  .card .top { font-weight:700; }
+  .card .suit { font-size:18px; text-align:right; }
+  .deck, .discard { width:72px;height:100px;border-radius:10px;background:linear-gradient(180deg,#0b394a,#052733);display:flex;align-items:center;justify-content:center;cursor:pointer; }
+  .pile{display:flex;flex-direction:column;gap:6px;align-items:center}
+  .controls{display:flex;gap:10px}
+  .btn{background:var(--accent);color:white;border:0;padding:10px 14px;border-radius:10px;cursor:pointer}
+  .btn.secondary{background:rgba(255,255,255,0.08)}
+  .info{font-size:13px;color:#cfe9ff}
+  .playedCardLabel{font-size:12px;color:#ddd;margin-bottom:6px}
+  /* responsive */
+  @media (max-width:640px){ .card{width:56px;height:80px} .deck{width:56px;height:80px} }
+</style>
+</head>
+<body>
+  <div class="table" role="main">
+    <div class="header">
+      <div class="avatar" id="myAvatar">👤</div>
+      <div>
+        <div id="players" class="pins">Players: — vs —</div>
+        <div id="status" class="info">Connecting...</div>
+      </div>
+    </div>
+
+    <div class="board">
+      <div class="row">
+        <div class="pile">
+          <div class="playedCardLabel">Opponent Played</div>
+          <div id="oppPlayed" class="deck"></div>
+        </div>
+
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px">
+          <div class="hand" id="oppHand"></div>
+          <div class="info" id="oppPin"></div>
+        </div>
+
+      </div>
+
+      <div style="display:flex;align-items:center;gap:24px">
+        <div class="pile">
+          <div class="playedCardLabel">Deck</div>
+          <div id="deck" class="deck">--</div>
+          <div class="info" id="deckCount">0</div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+          <div id="played" style="display:flex;gap:8px"></div>
+          <div class="info" id="round">Round 1</div>
+          <div class="info" id="scores">Scores —</div>
+        </div>
+
+        <div class="pile">
+          <div class="playedCardLabel">Discard</div>
+          <div id="discard" class="deck">--</div>
+          <div class="info" id="discardCount">0</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:8px">
+          <div class="info">Your Hand</div>
+          <div class="hand" id="myHand"></div>
+          <div class="info" id="myPin"></div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="drawBtn" class="btn secondary">Draw</button>
+        <button id="resetBtn" class="btn">Reset Round</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/*
+ Protocol with parent:
+ - iframe -> parent:
+    { type: 'requestGameInit' }
+    { type: 'playCard', card: {rank,suit,code}, player: <pin> }
+    { type: 'drawCard', player: <pin> }
+    { type: 'resetRound', player: <pin> }
+ - parent -> iframe:
+    { type: 'gameInit', convoId, currentPin, otherPin }
+    { type: 'gameState', data }  // data is Firestore doc content for card-battle
+*/
+
+let convoId = null;
+let myPin = null;
+let otherPin = null;
+const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+const suits = ['♠','♥','♦','♣'];
+const rankValue = (r) => ranks.indexOf(r);
+
+const $ = id => document.getElementById(id);
+const renderCard = (c) => {
+  const el = document.createElement('div');
+  el.className = 'card';
+  el.dataset.code = c.code;
+  el.innerHTML = '<div class="top">'+c.rank+'</div><div class="suit">'+c.suit+'</div>';
+  return el;
+};
+
+const renderBack = () => {
+  const el = document.createElement('div');
+  el.className = 'deck';
+  el.innerHTML = '&#127136;'
+  return el;
+};
+
+// request init
+window.parent.postMessage({ type: 'requestGameInit' }, '*');
+
+const updateUI = (state) => {
+  if (!state) return;
+  convoId = state.convoId || convoId;
+  $('deckCount').textContent = (state.deck || []).length;
+  $('discardCount').textContent = (state.discard || []).length;
+  $('round').textContent = 'Round ' + (state.round || 1);
+  $('scores').textContent = `Scores: ${state.scores ? Object.entries(state.scores).map(([p,s])=>p+':'+s).join(' | ') : '-'}`;
+
+  const myHand = (state.hands && state.hands[myPin]) || [];
+  const otherHand = (state.hands && state.hands[otherPin]) || [];
+
+  // Render my hand (clickable)
+  const myHandEl = $('myHand'); myHandEl.innerHTML = '';
+  myHand.forEach(c=>{
+    const e = renderCard(c);
+    e.addEventListener('click', () => {
+      // only allow play when it's your turn
+      if (state.turn !== myPin) return alert('Not your turn');
+      window.parent.postMessage({ type: 'playCard', card: c, player: myPin }, '*');
+    });
+    myHandEl.appendChild(e);
+  });
+
+  // Opponent hand: show back for each card they still have
+  const oppHandEl = $('oppHand'); oppHandEl.innerHTML = '';
+  for (let i=0;i<otherHand.length;i++){
+    const back = renderBack(); back.classList.add('small');
+    oppHandEl.appendChild(back);
+  }
+
+  // Played pile: show played cards
+  const playedEl = $('played'); playedEl.innerHTML = '';
+  (state.played || []).forEach(p=>{
+    const e = renderCard(p.card);
+    if (p.player === myPin) e.style.boxShadow = '0 8px 22px rgba(124,58,237,0.25)';
+    playedEl.appendChild(e);
+  });
+
+  // Opponent last played
+  const oppPlayed = $('oppPlayed'); oppPlayed.innerHTML = '';
+  const lastOpp = (state.played || []).slice().reverse().find(p=>p.player!==myPin);
+  if (lastOpp) oppPlayed.appendChild(renderCard(lastOpp.card));
+
+  $('deck').innerText = (state.deck && state.deck.length>0) ? 'DECK' : 'EMPTY';
+  $('discard').innerText = (state.discard && state.discard.length>0) ? 'DISCARD' : 'EMPTY';
+
+  $('myPin').textContent = myPin || '';
+  $('oppPin').textContent = otherPin || '';
+  $('players').textContent = `Players: ${myPin || '—'} vs ${otherPin || '—'}`;
+
+  $('status').textContent = state.status || 'Playing';
+
+  // disable draw button if not allowed
+  $('drawBtn').disabled = !(state.deck && state.deck.length>0 && (state.turn===myPin));
+};
+
+// listen for parent messages
+window.addEventListener('message', (ev)=>{
+  const data = ev.data || {};
+  if (!data.type) return;
+  if (data.type === 'gameInit') {
+    convoId = data.convoId || convoId;
+    myPin = data.currentPin || myPin;
+    otherPin = data.otherPin || otherPin;
+    $('status').textContent = 'Connected';
+    // Ask parent for the current state (it should already push after init)
+    return;
+  }
+  if (data.type === 'gameState') {
+    const state = data.data || {};
+    // local convenience: include convoId/pins
+    state.convoId = state.convoId || convoId;
+    updateUI(state);
+    return;
+  }
+});
+
+// UI buttons
+$('drawBtn').addEventListener('click', ()=> {
+  if (!myPin) return alert('Not initialized yet');
+  window.parent.postMessage({ type: 'drawCard', player: myPin }, '*');
+});
+$('resetBtn').addEventListener('click', ()=>{
+  if (!myPin) return alert('Not initialized yet');
+  if (!confirm('Reset round?')) return;
+  window.parent.postMessage({ type: 'resetRound', player: myPin }, '*');
+});
+</script>
+
+</body>
+</html>

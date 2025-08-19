@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Tic Tac Toe (Chat Duel)</title>
+  <style>
+    html,body{height:100%;margin:0;background:#0f172a;color:#fff;font-family:system-ui,Segoe UI,Roboto;display:flex;flex-direction:column;align-items:center;justify-content:center}
+    #board{display:grid;grid-template-columns:repeat(3,100px);grid-gap:8px;margin-top:16px}
+    .cell{width:100px;height:100px;background:#1e293b;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:2.4rem;cursor:pointer;user-select:none}
+    .meta{margin-top:12px;color:#d1d5db}
+    .btn{margin-top:14px;padding:8px 12px;background:#7c3aed;border:0;border-radius:8px;color:#fff;cursor:pointer}
+    .small{font-size:14px;color:#cbd5e1;margin-top:6px}
+  </style>
+</head>
+<body>
+  <h2>Tic-Tac-Toe Duel</h2>
+  <div id="players" class="small">Connecting...</div>
+  <div id="status" class="meta">Waiting for game...</div>
+  <div id="board"></div>
+  <div class="small" id="scores">Scores — </div>
+  <button id="reset" class="btn">Next Round</button>
+
+<script>
+(function(){
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const playersEl = document.getElementById('players');
+  const scoresEl = document.getElementById('scores');
+  const resetBtn = document.getElementById('reset');
+
+  let convoId = new URLSearchParams(location.search).get('convoId') || null;
+  let myId = null;     // parent will tell us (current user pin/email)
+  let otherId = null;
+  let gameState = null; // canonical from parent
+
+  // build 9 cells
+  function renderBoard(state) {
+    boardEl.innerHTML = '';
+    const board = state?.board || Array(9).fill(null);
+    for (let i=0;i<9;i++){
+      const val = board[i];
+      const div = document.createElement('div');
+      div.className = 'cell' + (val ? ' taken' : '');
+      div.textContent = val === null ? '' : (val === myId ? '●' : '○'); // show filled circles
+      div.onclick = () => {
+        if (!gameState) return;
+        if (gameState.winner || gameState.turn !== myId) return;
+        if (board[i] !== null) return;
+        // send move to parent
+        parent.postMessage({ type: 'makeMove', index: i, player: myId, convoId }, '*');
+      };
+      boardEl.appendChild(div);
+    }
+  }
+
+  function showState(state) {
+    gameState = state || {};
+    if (!gameState) return;
+    const players = gameState.players || [];
+    myId = myId || null;
+    // show players with friendly labels
+    playersEl.textContent = `Players: ${players[0]} vs ${players[1]}`;
+    scoresEl.textContent = `Scores — ${players[0]}: ${((gameState.scores||{})[players[0]]||0)}  |  ${players[1]}: ${((gameState.scores||{})[players[1]]||0)}`;
+
+    if (gameState.winner === 'draw') {
+      statusEl.textContent = 'Round ended in a draw.';
+    } else if (gameState.winner) {
+      statusEl.textContent = `${gameState.winner} won the round!`;
+    } else {
+      statusEl.textContent = (gameState.turn === myId) ? "Your turn" : `${gameState.turn}'s turn`;
+    }
+    renderBoard(gameState);
+  }
+
+  // ask parent for init
+  function requestInit() {
+    parent.postMessage({ type: 'requestGameInit', convoId }, '*');
+  }
+
+  // handle messages from parent
+  window.addEventListener('message', (ev) => {
+  const d = ev.data || {};
+  if (!d || !d.type) return;
+
+  if (d.type === 'gameInit') {
+    // parent now sends currentPin and otherPin (pins only)
+    convoId = d.convoId || convoId;
+    if (d.currentPin) myId = d.currentPin;
+    if (d.otherPin) otherId = d.otherPin;
+    playersEl.textContent = `Players: ${d.currentPin} vs ${d.otherPin || 'Unknown'}`;
+    statusEl.textContent = 'Connected';
+    return;
+  }
+
+  if (d.type === 'gameState') {
+    showState(d.data || {});
+   return;
+ }
+});
+
+  // allow reset (ask parent to reset)
+  resetBtn.addEventListener('click', () => {
+    parent.postMessage({ type: 'resetRound', convoId }, '*');
+  });
+
+  // on load request init; parent should reply + forward Firestore updates
+  requestInit();
+
+  // create initial empty UI while waiting
+  renderBoard({ board: Array(9).fill(null) });
+})();
+</script>
+</body>
+</html>
