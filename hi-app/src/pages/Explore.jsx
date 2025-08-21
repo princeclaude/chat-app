@@ -13,7 +13,8 @@ import {
   orderBy,
   startAt,
   endAt,
-  limit
+  limit,
+  setDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,6 +22,9 @@ import { useNavigate } from "react-router-dom";
 import BottomTab from "../components/BottomTab";
 import { FaUser } from "react-icons/fa";
 import { useProfile } from "../contexts/ProfileContext"; // to capture requester info if available
+import { useToast } from "../contexts/ToastContext";
+
+
 
 export default function Explore() {
   const { profile } = useProfile(); // may be undefined while loading
@@ -39,6 +43,7 @@ export default function Explore() {
   const [lockedUser, setLockedUser] = useState(null);
   const [requesting, setRequesting] = useState(false);
   const [requestSent, setRequestSent] = useState(false);
+  const { showToast } = useToast();
 
   // store original viewport meta so we can restore it
   const originalViewportRef = useRef(null);
@@ -185,8 +190,6 @@ export default function Explore() {
       }
     };
   }, [pin]);
-
-
 
   const disableZoomTemporarily = () => {
     const meta = metaRef.current;
@@ -367,31 +370,91 @@ export default function Explore() {
   };
 
   // send an access request doc to Firestore
-  const sendAccessRequest = async () => {
-    if (!lockedUser) return;
-    setRequesting(true);
-    try {
-      await addDoc(collection(db, "accessRequests"), {
-        requesterEmail: profile?.email || null,
-        requesterPin: profile?.pin || null,
-        receiverId: lockedUser.id,
-        receiverPin: lockedUser.pin || null,
-        status: "pending",
-        createdAt: serverTimestamp(),
-      });
-      setRequestSent(true);
-      // optionally auto-close after a short delay
-      setTimeout(() => {
-        setShowLockedModal(false);
-        setLockedUser(null);
-        setRequesting(false);
-      }, 1400);
-    } catch (err) {
-      console.error("Failed to create access request:", err);
-      setRequesting(false);
-    }
-  };
+  // inside src/pages/Explore.jsx - replace sendAccessRequest with this
+  
 
+   const sendAccessRequest = async () => {
+     if (!lockedUser) return;
+     if (!profile?.email) {
+       console.warn("No profile/email to send request from");
+       return;
+     }
+     setRequesting(true);
+     try {
+       // Prevent duplicate pending request from same requester -> same receiver
+       const recvRequestsCol = collection(
+         db,
+         "users",
+         lockedUser.id,
+         "requests"
+       );
+       const dupQ = query(
+         recvRequestsCol,
+         where("requesterEmail", "==", profile.email),
+         where("status", "==", "pending")
+       );
+       const existing = await getDocs(dupQ);
+       if (!existing.empty) {
+         // There's already a pending request
+         setRequestSent(true);
+         showToast?.("Request already pending");
+         setTimeout(() => {
+           setShowLockedModal(false);
+           setLockedUser(null);
+           setRequesting(false);
+         }, 900);
+         return;
+       }
+
+       // Create a new doc ref with generated id under receiver's requests subcollection
+       const newReqRef = doc(
+         collection(db, "users", lockedUser.id, "requests")
+       );
+       const requestId = newReqRef.id;
+
+       const payload = {
+         id: requestId,
+         requesterEmail: profile.email || null,
+         requesterPin: profile.pin || null,
+         requesterProfilePic: profile.profilePic || null,
+         receiverId: lockedUser.id,
+         receiverPin: lockedUser.pin || null,
+         receiverProfilePic: lockedUser.profilePic || null,
+         status: "pending", // pending | approved | declined | cancelled
+         createdAt: serverTimestamp(),
+       };
+
+       // write incoming request to receiver's requests subcollection
+       await setDoc(newReqRef, payload);
+
+       // also write outgoing copy under requester's requests subcollection (same collection name 'requests')
+       const outgoingRef = doc(
+         collection(db, "users", profile.email, "requests"),
+         requestId
+       );
+       await setDoc(outgoingRef, {
+         ...payload,
+         // store canonical receiver email so requester can link
+         receiverEmail: lockedUser.id,
+         // createdAt will be serverTimestamp again for this copy
+         createdAt: serverTimestamp(),
+       });
+
+       setRequestSent(true);
+       showToast?.("Request sent");
+
+       setTimeout(() => {
+         setShowLockedModal(false);
+         setLockedUser(null);
+         setRequesting(false);
+       }, 1400);
+     } catch (err) {
+       console.error("Failed to create access request:", err);
+       setRequesting(false);
+       showToast?.("Failed to send request", "error");
+     }
+  };
+  
   return (
     <div
       className="flex flex-col h-screen bg-white text-black p-4"
@@ -508,7 +571,6 @@ export default function Explore() {
                         Chirped! - tap to continue.
                       </p>
                     )}
-                    
                   </div>
                 </motion.div>
               ))}

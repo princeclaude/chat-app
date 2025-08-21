@@ -89,6 +89,7 @@ export default function ChatPanel() {
       url: "/games/tic-tac-toe/index.html",
       thumbnail: "/games/tic-tac-toe.png",
     },
+    
   ]);
 
   // touch helpers to detect an intentional tap (mobile)
@@ -263,6 +264,21 @@ export default function ChatPanel() {
      };
      // eslint-disable-next-line react-hooks/exhaustive-deps
    }, [convoId, profile, otherUser, otherKey]);
+  
+  function createDeck() {
+    // values 1..10 duplicated once producing 20 cards then shuffle
+    const values = [];
+    for (let v = 1; v <= 10; v++) {
+      values.push(v);
+      values.push(v);
+    }
+    // Fisher-Yates shuffle
+    for (let i = values.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [values[i], values[j]] = [values[j], values[i]];
+    }
+    return values;
+  }
 
 
   useEffect(() => {
@@ -324,6 +340,19 @@ export default function ChatPanel() {
       { merge: true }
     );
 
+    
+const p0 = profile?.pin || profile?.email?.split('@')[0]; // your current user's pin (use profile.pin if you store it)
+const p1 = otherUser?.pin || otherKey;
+const convoParam = convoId; // you already have
+const gameUrl = `${game.url}?p0=${encodeURIComponent(p0)}&p1=${encodeURIComponent(p1)}&convo=${encodeURIComponent(convoParam)}`;
+
+await setDoc(doc(db, "conversations", convoId, "game", "current"), {
+  title: game.title,
+  url: gameUrl,
+  startedAt: serverTimestamp(),
+  startedBy: currentEmail,
+});
+
     // Use pins only for players
     const currentPin = profile?.pin || currentEmail; // prefer profile.pin; fallback to email if pin missing
     const otherPin = otherUser?.pin || otherKey;
@@ -346,7 +375,7 @@ export default function ChatPanel() {
     closeGamePicker();
   } catch (e) {
     console.error("startGame error", e);
-    showToast?.("Couldn't start game", "default", 1500);
+    showToast?.("Couldn't start game", "default", 1500);
 }
 };
   const endGame = async () => {
@@ -1099,16 +1128,16 @@ export default function ChatPanel() {
           </div>
 
           <div className="flex items-center gap-4 text-purple-600">
-            <button
+            {/* <button
               onClick={handleWhatsAppClick}
               title="Send last message via WhatsApp"
               className="p-1"
             >
               <FaWhatsapp className="text-xl text-green-500" />
-            </button>
+            </button> */}
 
-            <FaBullhorn className="text-xl" />
-            <button
+            {/* <FaBullhorn className="text-xl" /> */}
+            {/* <button
               onClick={() =>
                 navigate(
                   `/callerscreen/${encodeURIComponent(
@@ -1119,7 +1148,7 @@ export default function ChatPanel() {
               }
             >
               <FaPhoneAlt className="text-xl" />
-            </button>
+            </button> */}
           </div>
         </div>
       </div>

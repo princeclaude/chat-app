@@ -25,6 +25,8 @@ import { FaUser, FaTrash, FaFile, FaShare, FaLock, FaLockOpen, FaScroll, FaInfo 
 import BottomTab from "../components/BottomTab";
 import { useProfile } from "../contexts/ProfileContext";
 import { FaTimes } from "react-icons/fa";
+import RequestsCenter from "../components/RequestCenter";
+
 
 
 dayjs.extend(relativeTime);
@@ -51,12 +53,15 @@ export default function ChatList() {
     setAccountPrivacy(profile?.accountPrivacy || "unlocked");
   }, [profile?.accountPrivacy]);
 
+  
   // toggle account privacy in Firestore (optimistic UI)
   const toggleAccountPrivacy = async () => {
     if (!profile?.email) return;
     const prev = accountPrivacy;
     const next = prev === "locked" ? "unlocked" : "locked";
 
+
+   
     // optimistic UI
     setAccountPrivacy(next);
 
@@ -536,11 +541,9 @@ export default function ChatList() {
           </span>
         </div>
         <div className="flex items-center gap-4 text-gray-600">
-          <div className="relative">
-            <button>
-              <FaUserPlus className="text-lg text-purple-600 font-bold" />
-            </button>
-          </div>
+
+          {/* <RequestsCenter/> */}
+          
           <div className="relative">
             <button
               onClick={() => navigate("/archived")}
@@ -579,13 +582,13 @@ export default function ChatList() {
             <FaShare />
             Share
           </button>
-          <button
+          {/* <button
             onClick={toggleAccountPrivacy}
             className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2"
           >
             {accountPrivacy === "locked" ? <FaLockOpen /> : <FaLock />}
             {accountPrivacy === "locked" ? "Unlock Account" : "Lock Account"}
-          </button>
+          </button> */}
           <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
             <FaScroll />
             Privacy Policy
