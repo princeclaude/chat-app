@@ -11,6 +11,7 @@ import Settings from "./pages/Settings";
 import CallerScreen from "./pages/CallerScreen";
 import CallsScreen from "./pages/CallsScreen";
 import ArchivedChatsScreen from "./pages/ArchivedChatsScreen";
+import ResetPassword from "./pages/ResetPassword";
 
 
 export default function Navigation() {
@@ -27,6 +28,7 @@ export default function Navigation() {
         <Route path="/callerscreen/:receiverPin" element={<CallerScreen />} />
         <Route path="calllogs" element={<CallsScreen/> } />
         <Route path="archived" element={<ArchivedChatsScreen/> } />
+        <Route path="reset-password" element={<ResetPassword/> } />
         <Route path="/bottomtab" element={<BottomTab />} />
       </Routes>
     </Router>

@@ -14,9 +14,10 @@ import {
   deleteDoc,
   serverTimestamp,
 } from "firebase/firestore";
-import { auth, db } from "../firebase";
+import { app, db } from "../firebase";
 import { toast } from "react-toastify";
 import { useToast } from "../contexts/ToastContext";
+import { sendPasswordResetEmail } from "firebase/auth";
 
 // Context setup
 const ProfileContext = createContext();
@@ -27,7 +28,43 @@ export const ProfileProvider = ({ children }) => {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
+  const auth = getAuth(app);
 
+
+  
+  const resetPassword = async (email) => {
+    try {
+      if (!email) {
+        showToast("Please enter your email", "default", 1000);
+        return false;
+      }
+
+      const actionCodeSettings = {
+        url: "https://chat-app-blush-one.vercel.app/reset-password",
+        handleCodeInApp: false,
+      };
+
+      
+      await sendPasswordResetEmail(auth, email, actionCodeSettings);
+
+      showToast(
+        "Password reset email sent! Check your inbox.",
+        "default",
+        2000
+      );
+      return true;
+    } catch (err) {
+      console.error("resetPassword error:", err.code, err.message);
+      if (err.code === "auth/user-not-found") {
+        showToast("No account found with this email", "default", 2000);
+      } else if (err.code === "auth/invalid-email") {
+        showToast("Invalid email format", "default", 2000);
+      } else {
+        showToast("Failed to send reset email", "default", 2000);
+      }
+      return false;
+    }
+  };
   
   const generatePin = () => {
     const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -80,7 +117,7 @@ export const ProfileProvider = ({ children }) => {
         { merge: true }
       );
 
-      // create a deterministic convo id (match ChatPanel pattern)
+      
       const a = sanitize(email);
       const b = sanitize(teamId);
       const convoId = [a, b].sort().join("");
@@ -92,7 +129,7 @@ export const ProfileProvider = ({ children }) => {
         await setDoc(convoRef, {
           id: convoId,
           participants: [email, teamId],
-          otherUserEmail: teamId, // optional helpful field for your enrichment logic
+          otherUserEmail: teamId, 
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           lastMessage:
@@ -256,6 +293,7 @@ export const ProfileProvider = ({ children }) => {
         signup,
         signin,
         signout,
+        resetPassword,
       }}
     >
       {children}

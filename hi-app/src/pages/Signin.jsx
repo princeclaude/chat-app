@@ -5,6 +5,7 @@ import { FaUserPlus } from "react-icons/fa";
 
 import { useToast } from "../contexts/ToastContext";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
+import ForgotPasswordModal from "./ForgotPasswordModal";
 
 const Signin = () => {
   const { signin } = useProfile();
@@ -15,6 +16,7 @@ const Signin = () => {
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
   const [showPassword, setShowPassword] = useState(false);
+  const [showforgotpassword, setShowForgotpassword] = useState(false);
 
   const handleSignin = async (e) => {
     e.preventDefault();
@@ -87,9 +89,13 @@ const Signin = () => {
           </div>
 
           <div className="flex items-center justify-between mb-4">
-            <Link to="/" className="text-sm text-purple-500 hover:underline">
+            <button
+              type="button"
+              onClick={() => setShowForgotpassword(true)}
+              className="text-sm text-purple-500 hover:underline"
+            >
               Forgot password?
-            </Link>
+            </button>
             <Link to="/signup" className="text-purple-600 text-xl">
               <FaUserPlus />
             </Link>
@@ -103,6 +109,10 @@ const Signin = () => {
             {loading ? "Signing in..." : "Sign In"}
           </button>
         </form>
+        <ForgotPasswordModal
+          isOpen={showforgotpassword}
+          onClose={() => setShowForgotpassword(false)}
+        />
       </div>
     </div>
   );
