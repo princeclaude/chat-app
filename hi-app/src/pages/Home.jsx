@@ -43,10 +43,46 @@ export default function ChatList() {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const navigate = useNavigate();
   const userCacheRef = useRef(new Map());
+  const [showContact, setShowContact] = useState(false);
   const [archivedCount, setArchivedCount] = useState(0);
   const [accountPrivacy, setAccountPrivacy] = useState(
     profile?.accountPrivacy || "unlocked"
   );
+
+  const handleShareProfile = async () => {
+  if (!currentUser?.pin) return;
+
+  // Build the profile link (adjust to your app’s route)
+  const profileLink = `${window.location.origin}/profile/${currentUser.pin}`;
+
+  if (navigator.share) {
+    // ✅ Use native share sheet
+    try {
+      await navigator.share({
+        title: "hi! Profile",
+        text: "Check out my hi! profile 👋",
+        url: profileLink,
+      });
+    } catch (err) {
+      console.error("Share cancelled or failed:", err);
+    }
+  } else {
+    // ❌ Fallback: copy link to clipboard
+    try {
+      await navigator.clipboard.writeText(profileLink);
+      if (window?.toast) {
+        window.toast("Profile link copied", { type: "success" });
+      } else {
+        alert("Profile link copied");
+      }
+    } catch (err) {
+      console.error("Failed to copy link:", err);
+      alert("Could not copy profile link");
+    }
+  }
+
+  setShowMenu(false); // close the menu
+};
 
   const unsubRef = useRef(null);
 
@@ -695,7 +731,10 @@ export default function ChatList() {
             Report
           </button>
 
-          <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
+          <button
+            onClick={handleShareProfile}
+            className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2"
+          >
             <FaShare />
             Share
           </button>
@@ -717,7 +756,10 @@ export default function ChatList() {
             <FaInfo />
             About Us
           </button>
-          <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
+          <button
+            onClick={() => setShowContact(true)}
+            className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2"
+          >
             <FaEnvelopeOpen />
             Contact Us
           </button>
@@ -929,6 +971,37 @@ export default function ChatList() {
         </div>
       )}
 
+      {showContact && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white w-80 p-6 rounded-lg shadow-lg transform transition-all duration-300 scale-95 opacity-0 animate-fadeInUp">
+            <h2 className="text-xl font-bold text-purple-600 mb-3">
+              Contact Us
+            </h2>
+            <p className="text-gray-700 mb-2">
+              📧 Email:{" "}
+              <a
+                href="mailto:support@hiapp.com"
+                className="text-purple-500 underline"
+              >
+                support@chirp.com
+              </a>
+            </p>
+            <p className="text-gray-700 mb-4">
+              📞 Phone:{" "}
+              <a href="tel:+1234567890" className="text-purple-500 underline">
+                +2347018462495
+              </a>
+            </p>
+            <button
+              onClick={() => setShowContact(false)}
+              className="w-full bg-purple-600 text-white py-2 rounded-md hover:bg-purple-700 transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Confirm delete modal */}
       {confirmDeleteId && (
         <div
@@ -1045,6 +1118,19 @@ export default function ChatList() {
         @media (hover: none) and (pointer: coarse) {
           .action-touch { padding: 12px; width: 46px; height: 46px; }
         }
+          @keyframes fadeInUp {
+          0% {
+            opacity: 0;
+            transform: translateY(20px) scale(0.95);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+        }
+        .animate-fadeInUp {
+          animation: fadeInUp 0.3s ease-out forwards;
+  }
       `}</style>
     </div>
   );

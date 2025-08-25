@@ -121,7 +121,7 @@ export default function ArchivedChatsScreen() {
   return (
       <div className="p-4">
            <button onClick={() => navigate(-1)} className="pr-1">
-                        <FaChevronLeft className="text-lg text-purple-700" />
+                        <FaChevronLeft className="text-lg text-purple-700 mb-4" />
                       </button>
           
       <h2 className="text-xl font-bold mb-4 text-purple-600">Archived Chats</h2>
