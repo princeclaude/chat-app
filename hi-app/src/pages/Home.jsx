@@ -29,6 +29,7 @@ import RequestsCenter from "../components/RequestCenter";
 
 
 
+
 dayjs.extend(relativeTime);
 
 export default function ChatList() {
@@ -53,15 +54,12 @@ export default function ChatList() {
     setAccountPrivacy(profile?.accountPrivacy || "unlocked");
   }, [profile?.accountPrivacy]);
 
-  
   // toggle account privacy in Firestore (optimistic UI)
   const toggleAccountPrivacy = async () => {
     if (!profile?.email) return;
     const prev = accountPrivacy;
     const next = prev === "locked" ? "unlocked" : "locked";
 
-
-   
     // optimistic UI
     setAccountPrivacy(next);
 
@@ -99,6 +97,14 @@ export default function ChatList() {
     }
     longPressMovedRef.current = false;
     longPressStartYRef.current = 0;
+  };
+
+  
+  const getLastMessageText = (m) => {
+    if (!m) return "";
+    if (typeof m === "string") return m;
+    if (typeof m === "object") return m.text ?? "";
+    return String(m);
   };
 
   const startLongPress = (e, id) => {
@@ -154,26 +160,22 @@ export default function ChatList() {
   };
 
   // subscribe to conversations (server-side filtered)
+
   useEffect(() => {
-    if (!profile?.email) return;
+    if (!profile?.email) {
+      // Clear conversations when not signed in (avoids showing others on refresh)
+      setConversations([]);
+      return;
+    }
 
-    const q1 = query(
-      collection(db, "conversations"),
-      where("sender", "==", profile.email),
-      orderBy("updatedAt", "desc")
-    );
+    const userEmail = profile.email;
 
-    const q2 = query(
-      collection(db, "conversations"),
-      where("receiver", "==", profile.email),
-      orderBy("updatedAt", "desc")
-    );
-
+    // A system conversation object you keep at top
     const systemConvo = {
       id: "chirp-team",
       isSystemConversation: true,
       sender: "Chirp Team",
-      receiver: profile?.email,
+      receiver: userEmail,
       lastMessage: {
         text: "👋 Welcome to Chirp! Here are some useful links: Privacy | About Us | Contact",
         createdAt: new Date(),
@@ -182,41 +184,157 @@ export default function ChatList() {
       unread: false,
     };
 
-    const unsub1 = onSnapshot(q1, (snap1) => {
-      const convos1 = snap1.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setConversations((prev) => {
-        const filtered = prev.filter(
-          (c) => c._source !== "q1" && c.id !== "chirp-team"
-        );
-        return [
-          systemConvo,
-          ...filtered,
-          ...convos1.map((c) => ({ ...c, _source: "q1" })),
-        ];
-      });
-    });
+    // --- Option A: If your docs have participants: single listener (preferred) ---
+    try {
+      const qParticipants = query(
+        collection(db, "conversations"),
+        where("participants", "array-contains", userEmail),
+        orderBy("updatedAt", "desc")
+      );
 
-    const unsub2 = onSnapshot(q2, (snap2) => {
-      const convos2 = snap2.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setConversations((prev) => {
-        const filtered = prev.filter(
-          (c) => c._source !== "q2" && c.id !== "chirp-team"
-        );
-        return [
-          systemConvo,
-          ...filtered,
-          ...convos2.map((c) => ({ ...c, _source: "q2" })),
-        ];
-      });
-    });
+      const unsub = onSnapshot(
+        qParticipants,
+        (snap) => {
+          const convos = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setConversations([systemConvo, ...convos]);
+        },
+        (err) => {
+          // If this fails (index required or any other), we fall back to the sender/receiver listeners below.
+          console.warn("participants listener failed, falling back:", err);
+        }
+      );
 
-    return () => {
-      unsub1();
-      unsub2();
+      // Clean up and return early — if your schema uses participants don't run further listeners.
+      return () => unsub();
+    } catch (err) {
+      // if something unexpected thrown, continue to fallback
+      console.warn("participants query setup failed, falling back:", err);
+    }
+
+    // --- Option B (fallback): merge sender + receiver queries and dedupe ---
+    // This part runs if Option A didn't succeed or if you prefer sender/receiver approach.
+    // Keep a local Map to merge results from both listeners.
+    const convosMap = new Map();
+
+    const qSender = query(
+      collection(db, "conversations"),
+      where("sender", "==", userEmail),
+      orderBy("updatedAt", "desc")
+    );
+    const qReceiver = query(
+      collection(db, "conversations"),
+      where("receiver", "==", userEmail),
+      orderBy("updatedAt", "desc")
+    );
+
+    const applyMapToState = () => {
+      const arr = Array.from(convosMap.values()).sort((a, b) => {
+        const aT = a.updatedAt?.seconds || a.updatedAt?.toMillis?.() || 0;
+        const bT = b.updatedAt?.seconds || b.updatedAt?.toMillis?.() || 0;
+        return bT - aT;
+      });
+      setConversations([systemConvo, ...arr]);
     };
+
+    const unsub1 = onSnapshot(
+      qSender,
+      (snap) => {
+        snap.docs.forEach((d) =>
+          convosMap.set(d.id, { id: d.id, ...d.data() })
+        );
+        applyMapToState();
+      },
+      (err) => {
+        console.warn("sender listener error:", err);
+      }
+    );
+
+    const unsub2 = onSnapshot(
+      qReceiver,
+      (snap) => {
+        snap.docs.forEach((d) =>
+          convosMap.set(d.id, { id: d.id, ...d.data() })
+        );
+        applyMapToState();
+      },
+      (err) => {
+        console.warn("receiver listener error:", err);
+      }
+    );
+
+    // cleanup both listeners
+    return () => {
+      try {
+        unsub1 && unsub1();
+      } catch (e) {}
+      try {
+        unsub2 && unsub2();
+      } catch (e) {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.email]);
 
+  // useEffect(() => {
+  //   if (!profile?.email) return;
 
+  //   const q1 = query(
+  //     collection(db, "conversations"),
+  //     where("sender", "==", profile.email),
+  //     orderBy("updatedAt", "desc")
+  //   );
+
+  //   const q2 = query(
+  //     collection(db, "conversations"),
+  //     where("receiver", "==", profile.email),
+  //     orderBy("updatedAt", "desc")
+  //   );
+
+  //   const systemConvo = {
+  //     id: "chirp-team",
+  //     isSystemConversation: true,
+  //     sender: "Chirp Team",
+  //     receiver: profile?.email,
+  //     lastMessage: {
+  //       text: "👋 Welcome to Chirp! Here are some useful links: Privacy | About Us | Contact",
+  //       createdAt: new Date(),
+  //     },
+  //     updatedAt: new Date(),
+  //     unread: false,
+  //   };
+
+  //   const unsub1 = onSnapshot(q1, (snap1) => {
+  //     const convos1 = snap1.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  //     setConversations((prev) => {
+  //       const filtered = prev.filter(
+  //         (c) => c._source !== "q1" && c.id !== "chirp-team"
+  //       );
+  //       return [
+  //         systemConvo,
+  //         ...filtered,
+  //         ...convos1.map((c) => ({ ...c, _source: "q1" })),
+  //       ];
+  //     });
+  //   });
+
+  //   const unsub2 = onSnapshot(q2, (snap2) => {
+  //     const convos2 = snap2.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  //     setConversations((prev) => {
+  //       const filtered = prev.filter(
+  //         (c) => c._source !== "q2" && c.id !== "chirp-team"
+  //       );
+  //       return [
+  //         systemConvo,
+  //         ...filtered,
+  //         ...convos2.map((c) => ({ ...c, _source: "q2" })),
+  //       ];
+  //     });
+  //   });
+
+  //   return () => {
+  //     unsub1();
+  //     unsub2();
+  //   };
+  // }, [profile?.email]);
 
   const currentUser = {
     pin: profile?.pin || "",
@@ -225,24 +343,24 @@ export default function ChatList() {
   };
 
   // subscribe to conversations (exclude archived by default in UI)
-  useEffect(() => {
-    const q = query(
-      collection(db, "conversations"),
-      orderBy("updatedAt", "desc")
-    );
-    const unsub = onSnapshot(q, (snapshot) => {
-      const convos = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      // hide archived conversations from main list
-      const visible = convos.filter((c) => !c.archived);
-      const filtered = profile?.email
-        ? visible.filter(
-            (c) => !c.participants || c.participants.includes(profile.email)
-          )
-        : visible;
-      setConversations(filtered);
-    });
-    return () => unsub();
-  }, [profile]);
+  // useEffect(() => {
+  //   const q = query(
+  //     collection(db, "conversations"),
+  //     orderBy("updatedAt", "desc")
+  //   );
+  //   const unsub = onSnapshot(q, (snapshot) => {
+  //     const convos = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+  //     // hide archived conversations from main list
+  //     const visible = convos.filter((c) => !c.archived);
+  //     const filtered = profile?.email
+  //       ? visible.filter(
+  //           (c) => !c.participants || c.participants.includes(profile.email)
+  //         )
+  //       : visible;
+  //     setConversations(filtered);
+  //   });
+  //   return () => unsub();
+  // }, [profile]);
 
   // when conversations or profile change, enrich conversations with other user's pin/profilePic
   useEffect(() => {
@@ -541,9 +659,8 @@ export default function ChatList() {
           </span>
         </div>
         <div className="flex items-center gap-4 text-gray-600">
-
           {/* <RequestsCenter/> */}
-          
+
           <div className="relative">
             <button
               onClick={() => navigate("/archived")}
@@ -589,7 +706,10 @@ export default function ChatList() {
             {accountPrivacy === "locked" ? <FaLockOpen /> : <FaLock />}
             {accountPrivacy === "locked" ? "Unlock Account" : "Lock Account"}
           </button> */}
-          <button className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2">
+          <button
+            onClick={() => navigate("/privacypolicy")}
+            className="w-full text-left text-purple-500 px-2 py-2 hover:bg-purple-50 flex items-center gap-2"
+          >
             <FaScroll />
             Privacy Policy
           </button>
@@ -662,6 +782,7 @@ export default function ChatList() {
                   .includes(searchTerm.toLowerCase())
           )
           .map((chat) => {
+            const lastMessageText = getLastMessageText(chat.lastMessage);
             const otherPic = chat.otherUserPic || null; // null triggers FaUser fallback
             const otherPin =
               chat.otherUserPin || chat.otherUserEmail || "UNKNOWN";
@@ -788,7 +909,7 @@ export default function ChatList() {
                     <div className="ml-3">
                       <p className="font-semibold text-black">{otherPin}</p>
                       <p className="text-sm text-gray-500 truncate max-w-[200px]">
-                        {chat.lastMessage || ""}
+                        {lastMessageText}
                       </p>
                     </div>
                   </div>

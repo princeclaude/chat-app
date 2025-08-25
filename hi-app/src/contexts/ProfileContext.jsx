@@ -148,17 +148,17 @@ export const ProfileProvider = ({ children }) => {
         "messages",
         "welcome"
       );
-      const welcomeSnap = await getDoc(welcomeMsgRef);
-      if (!welcomeSnap.exists()) {
-        await setDoc(welcomeMsgRef, {
-          id: "welcome",
-          sender: teamId,
-          text: "Welcome to Chirp 🎉\n\nPrivacy Policy: https://yourapp.com/privacy\nAbout Us: https://yourapp.com/about\nContact: https://yourapp.com/contact",
-          createdAt: serverTimestamp(),
-          status: "delivered",
-          nonReplyable: true,
-        });
-      }
+      // const welcomeSnap = await getDoc(welcomeMsgRef);
+      // if (!welcomeSnap.exists()) {
+      //   await setDoc(welcomeMsgRef, {
+      //     id: "welcome",
+      //     sender: teamId,
+      //     text: "Welcome to Chirp 🎉\n\nPrivacy Policy: https://yourapp.com/privacy\nAbout Us: https://yourapp.com/about\nContact: https://yourapp.com/contact",
+      //     createdAt: serverTimestamp(),
+      //     status: "delivered",
+      //     nonReplyable: true,
+      //   });
+      // }
 
       // update conversation metadata (safe to run even if exists)
       await setDoc(

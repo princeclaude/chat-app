@@ -12,6 +12,7 @@ import CallerScreen from "./pages/CallerScreen";
 import CallsScreen from "./pages/CallsScreen";
 import ArchivedChatsScreen from "./pages/ArchivedChatsScreen";
 import ResetPassword from "./pages/ResetPassword";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 
 
 export default function Navigation() {
@@ -19,6 +20,7 @@ export default function Navigation() {
     <Router>
       <Routes>
         <Route path="/" element={<SignIn />} />
+        <Route path="/signin" element={<SignIn />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/profilesetup" element={<ProfileSetup />} />
         <Route path="/home" element={<Home />} />
@@ -29,6 +31,7 @@ export default function Navigation() {
         <Route path="calllogs" element={<CallsScreen/> } />
         <Route path="archived" element={<ArchivedChatsScreen/> } />
         <Route path="reset-password" element={<ResetPassword/> } />
+        <Route path="privacypolicy" element={<PrivacyPolicy/> } />
         <Route path="/bottomtab" element={<BottomTab />} />
       </Routes>
     </Router>

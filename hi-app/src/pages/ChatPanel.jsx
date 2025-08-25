@@ -741,6 +741,7 @@ await setDoc(doc(db, "conversations", convoId, "game", "current"), {
             updatedAt: serverTimestamp(),
             lastMessage: "",
             lastMessageTime: serverTimestamp(),
+            
           });
         }
 
@@ -1128,27 +1129,7 @@ await setDoc(doc(db, "conversations", convoId, "game", "current"), {
           </div>
 
           <div className="flex items-center gap-4 text-purple-600">
-            {/* <button
-              onClick={handleWhatsAppClick}
-              title="Send last message via WhatsApp"
-              className="p-1"
-            >
-              <FaWhatsapp className="text-xl text-green-500" />
-            </button> */}
-
-            {/* <FaBullhorn className="text-xl" /> */}
-            {/* <button
-              onClick={() =>
-                navigate(
-                  `/callerscreen/${encodeURIComponent(
-                    otherUser?.pin || otherUser?.email
-                  )}`,
-                  { state: { receiver: { profilleImage: otherUser?.profile } } }
-                )
-              }
-            >
-              <FaPhoneAlt className="text-xl" />
-            </button> */}
+           
           </div>
         </div>
       </div>
@@ -1179,52 +1160,69 @@ await setDoc(doc(db, "conversations", convoId, "game", "current"), {
         )}
 
         {messages.map((m) => {
-          const isMe = m.sender === currentEmail;
-          return (
-            <div
-              key={m.id}
-              className={`flex ${isMe ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                onClick={(e) => handleBubbleClick(e, m)}
-                onTouchStart={(e) => handleTouchStart(e, m.id)}
-                onTouchEnd={(e) => handleTouchEnd(e, m)}
-                className={`no-select-touch relative px-4 py-2 rounded-2xl max-w-[70%] animate-pop shadow-sm ${
-                  isMe
-                    ? "bg-gradient-to-br from-purple-700 to-purple-600 text-white rounded-br-none"
-                    : "bg-purple-500 text-white rounded-bl-none"
-                }`}
-              >
-                {/* Image message */}
-                {m.imageThumbUrl ? (
-                  <div
-                    className="cursor-pointer"
-                    onClick={() =>
-                      openImageModal(m.imageFullUrl || m.imageThumbUrl)
-                    }
-                  >
-                    <img
-                      src={m.imageThumbUrl}
-                      alt="sent"
-                      className="w-full max-w-[320px] h-auto rounded-lg object-cover"
-                    />
-                  </div>
-                ) : (
-                  <div className="whitespace-pre-wrap">{m.text}</div>
-                )}
-
-                <div
-                  className={`flex items-center ${
-                    isMe ? "justify-end" : "justify-start"
-                  } gap-1 text-[10px] mt-1 opacity-70`}
-                >
-                  {formatTime(m.createdAt)}
-                  {isMe && renderStatusIcon(m.status)}
-                </div>
-              </div>
+  const isMe = m.sender === currentEmail;
+  return (
+    <div
+      key={m.id}
+      className={`flex ${isMe ? "justify-end" : "justify-start"}`}
+    >
+      <div
+        onClick={(e) => handleBubbleClick(e, m)}
+        onTouchStart={(e) => handleTouchStart(e, m.id)}
+        onTouchEnd={(e) => handleTouchEnd(e, m)}
+        className={`no-select-touch relative px-4 py-2 rounded-2xl max-w-[70%] animate-pop shadow-sm ${
+          isMe
+            ? "bg-gradient-to-br from-purple-700 to-purple-600 text-white rounded-br-none"
+            : "bg-purple-500 text-white rounded-bl-none"
+        }`}
+      >
+        {/* ✅ Show reply preview if exists */}
+        {m.replyTo && (
+          <div className="quoted bg-black/20 px-2 py-1 rounded mb-2 text-xs text-gray-200">
+            <div className="font-semibold text-[10px] mb-0">
+              {/* {m.replyTo.sender} */}
             </div>
-          );
-        })}
+            <div className="truncate">
+              {m.replyTo.text
+                ? m.replyTo.text
+                : m.replyTo.imageThumbUrl
+                ? "📷 Photo"
+                : ""}
+            </div>
+          </div>
+        )}
+
+        {/* Image or text message */}
+        {m.imageThumbUrl ? (
+          <div
+            className="cursor-pointer"
+            onClick={() =>
+              openImageModal(m.imageFullUrl || m.imageThumbUrl)
+            }
+          >
+            <img
+              src={m.imageThumbUrl}
+              alt="sent"
+              className="w-full max-w-[320px] h-auto rounded-lg object-cover"
+            />
+          </div>
+        ) : (
+          <div className="whitespace-pre-wrap">{m.text}</div>
+        )}
+
+        {/* Time + status */}
+        <div
+          className={`flex items-center ${
+            isMe ? "justify-end" : "justify-start"
+          } gap-1 text-[10px] mt-1 opacity-70`}
+        >
+          {formatTime(m.createdAt)}
+          {isMe && renderStatusIcon(m.status)}
+        </div>
+      </div>
+   </div>
+);
+})}
 
         {/* Typing indicator */}
         {isTyping && (
@@ -1267,18 +1265,7 @@ await setDoc(doc(db, "conversations", convoId, "game", "current"), {
           >
             <FaCopy className="text-gray-600" /> Copy
           </button>
-          <button
-            onClick={handleEdit}
-            className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
-          >
-            <FaEdit className="text-green-500" /> Edit
-          </button>
-          <button
-            onClick={handleForward}
-            className="flex items-center gap-2 hover:bg-gray-100 p-2 rounded-md"
-          >
-            <FaShare className="text-purple-500" /> Forward
-          </button>
+         
         </div>
       )}
 
@@ -1286,7 +1273,7 @@ await setDoc(doc(db, "conversations", convoId, "game", "current"), {
       {replyTo && (
         <div className="mb-2 px-3 py-2 rounded-lg bg-gray-50 border-l-4 border-purple-500 flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-xs text-gray-500">{passedOtherUser?.pin}</div>
+            <div className="text-xs text-gray-500">{}</div>
             <div className="text-sm text-gray-800 truncate max-w-[280px]">
               {replyTo.text
                 ? replyTo.text

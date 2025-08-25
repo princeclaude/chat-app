@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { db, auth } from "../firebase";
 import {
@@ -44,6 +44,8 @@ export default function Settings() {
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const progressTimerRef = useRef(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -98,11 +100,39 @@ export default function Settings() {
   }, []);
 
   const handleLogout = async () => {
-    await logout();
-    navigate("/");
+    setShowLogoutModal(true);
+    
   };
 
-  // ---- NEW: helper to animate progress toward 90% while upload is ongoing ----
+  const confirmLogout = async () => {
+    try {
+      await logout();
+      navigate("/signin")
+    } catch (err) {
+      console.error("logout error", err);
+      showToast("Failed to logout", "error", 1000)
+      
+    }
+  }
+
+  const handledeleteaccount = async () => {
+    
+    setShowDeleteModal(true);
+    
+    
+
+  };
+
+  const confirmDelete = async () => {
+    try {
+      await deleteAccount();
+      navigate("/signin")
+    } catch (err) {
+      console.error("Delete faile", err)
+      showToast("Delete account failed, try again", "default",1000)
+    }
+  }
+
   const startFakeProgress = () => {
     clearInterval(progressTimerRef.current);
     // start small
@@ -522,7 +552,6 @@ export default function Settings() {
               Set as Chat Background
             </button>
           </div>
-         
         </div>
       )}
 
@@ -535,12 +564,90 @@ export default function Settings() {
           Logout
         </button>
         <button
-          onClick={deleteAccount}
+          onClick={handledeleteaccount}
           className="bg-red-600 text-white px-4 py-2 rounded"
         >
           Delete Account
         </button>
       </div>
+      <AnimatePresence>
+        {showLogoutModal && (
+          <motion.div
+            className="fixed inset-0 bg-black/40 flex items-end justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowLogoutModal(false)} 
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 120 }}
+              className="bg-white w-full max-w-md rounded-t-2xl p-6 shadow-lg"
+              onClick={(e) => e.stopPropagation()} // prevent backdrop close
+            >
+              <h2 className="text-lg font-bold text-center text-purple-700 mb-4">
+                Sure you want to log out?
+              </h2>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={confirmLogout}
+                  className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition"
+                >
+                  Continue
+                </button>
+                <button
+                  onClick={() => setShowLogoutModal(false)}
+                  className="flex-1 bg-gray-200 text-black py-2 rounded-lg hover:bg-gray-300 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showDeleteModal && (
+          <motion.div
+            className="fixed inset-0 bg-black/40 flex items-end justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowDeleteModal(false)} 
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", stiffness: 120 }}
+              className="bg-white w-full max-w-md rounded-t-2xl p-6 shadow-lg"
+              onClick={(e) => e.stopPropagation()} 
+            >
+              <h2 className="text-lg font-bold text-center text-purple-700 mb-4">
+                Sure you want to delete your account?
+              </h2>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition"
+                >
+                  Continue
+                </button>
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="flex-1 bg-gray-200 text-black py-2 rounded-lg hover:bg-gray-300 transition"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
