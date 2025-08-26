@@ -792,7 +792,7 @@ export default function ChatList() {
             const otherPin =
               chat.otherUserPin || chat.otherUserEmail || "UNKNOWN";
             const targetParam = encodeURIComponent(
-              chat.otherUserEmail || chat.otherUserId || chat.id
+              chat.otherUserPin  || chat.id
             );
             const rowRef = getRowRef(chat.id);
 
