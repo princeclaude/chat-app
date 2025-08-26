@@ -204,15 +204,30 @@ export default function ChatList() {
 
     const userEmail = profile.email;
 
+    // const systemConvo = {
+    //   id: "chirp-team",
+    //   isSystemConversation: true,
+    //   sender: "Chirp Team",
+    //   receiver: userEmail,
+    //   lastMessage: {
+    //     text: "👋 Welcome to Chirp! Here are some useful links: Privacy | About Us | Contact",
+    //     createdAt: new Date(),
+    //   },
+    //   updatedAt: new Date(),
+    //   unread: false,
+    // };
+
     const systemConvo = {
       id: "chirp-team",
       isSystemConversation: true,
-      sender: "Chirp Team",
-      receiver: userEmail,
+      otherUserEmail: "chirp@system",
+      otherUserPin: "Chirp",
+      otherUserPic: "/chirp-logo.png", // 👈 add your static logo asset
       lastMessage: {
-        text: "👋 Welcome to Chirp! Here are some useful links: Privacy | About Us | Contact",
+        text: "👋 Hey you! Welcome to Chirp! ",
         createdAt: new Date(),
       },
+      lastMessageTime: new Date(), // 👈 so formatTime works
       updatedAt: new Date(),
       unread: false,
     };
@@ -871,6 +886,9 @@ export default function ChatList() {
                     // if currently revealed, dismiss on click; else navigate
                     if (actionModalFor === chat.id) {
                       // if action modal is open for this id, don't navigate
+                      return;
+                    }
+                    if (chat.isSystemConversation) {
                       return;
                     }
                     if (swipedId === chat.id) {
