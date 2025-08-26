@@ -13,6 +13,7 @@ import CallsScreen from "./pages/CallsScreen";
 import ArchivedChatsScreen from "./pages/ArchivedChatsScreen";
 import ResetPassword from "./pages/ResetPassword";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
+import About from "./pages/About";
 
 
 export default function Navigation() {
@@ -32,6 +33,7 @@ export default function Navigation() {
         <Route path="archived" element={<ArchivedChatsScreen/> } />
         <Route path="reset-password" element={<ResetPassword/> } />
         <Route path="privacypolicy" element={<PrivacyPolicy/> } />
+        <Route path="about" element={<About/> } />
         <Route path="/bottomtab" element={<BottomTab />} />
       </Routes>
     </Router>

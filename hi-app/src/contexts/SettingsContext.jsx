@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { auth, db } from "../firebase";
+
 import {
   updateEmail as fbUpdateEmail,
   updatePassword as fbUpdatePassword,
   signOut,
   deleteUser,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
 } from "firebase/auth";
 import {
   doc,
@@ -15,13 +18,27 @@ import {
 } from "firebase/firestore";
 import { UploadClient } from "@uploadcare/upload-client";
 
+
 const SettingsContext = createContext();
 export const useSettings = () => useContext(SettingsContext);
 
 export const SettingsProvider = ({ children }) => {
   const [userData, setUserData] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
-  const [backgrounds, setBackgrounds] = useState([]); // ✅ store all backgrounds
+  const [backgrounds, setBackgrounds] = useState([]);
+
+  const reauthenticate = async (password) => {
+    if (!auth.currentUser?.email) throw new Error("No user logged in");
+
+    const credential = EmailAuthProvider.credential(
+      auth.currentUser.email,
+      password
+    );
+
+    await reauthenticateWithCredential(auth.currentUser, credential);
+  };
+  
+
 
   // Fetch user data
   useEffect(() => {
@@ -95,20 +112,34 @@ export const SettingsProvider = ({ children }) => {
     }
   };
 
-  // ✅ Update email
-  const changeEmail = async (newEmail) => {
-    if (!auth.currentUser) return;
-    await fbUpdateEmail(auth.currentUser, newEmail);
-    await updateDoc(doc(db, "users", auth.currentUser.email), {
-      email: newEmail,
-    });
+  const changeEmail = async (newEmail, currentPassword) => {
+    try {
+      await reauthenticate(currentPassword); // user must enter current password
+      await fbUpdateEmail(auth.currentUser, newEmail);
+
+      await updateDoc(doc(db, "users", auth.currentUser.uid), {
+        email: newEmail,
+      });
+
+      console.log("Email updated successfully");
+    } catch (error) {
+      console.error("Error updating email:", error);
+      throw error;
+    }
   };
 
-  // ✅ Update password
-  const changePassword = async (newPassword) => {
-    if (!auth.currentUser) return;
-    await fbUpdatePassword(auth.currentUser, newPassword);
+  // ✅ Update password (with re-authentication)
+  const changePassword = async (newPassword, currentPassword) => {
+    try {
+      await reauthenticate(currentPassword); // re-auth first
+      await fbUpdatePassword(auth.currentUser, newPassword);
+      console.log("Password updated successfully");
+    } catch (error) {
+      console.error("Error updating password:", error);
+      throw error;
+    }
   };
+  
 
   // ✅ Logout
   const logout = async () => {

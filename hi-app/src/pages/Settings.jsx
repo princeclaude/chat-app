@@ -30,7 +30,7 @@ export default function Settings() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  
+
   const [number, setNumber] = useState("");
   const [profilePicFile, setProfilePicFile] = useState(null);
   const [persistedPic, setPersistedPic] = useState(null);
@@ -52,7 +52,25 @@ export default function Settings() {
 
   const { fetchBackgrounds, setChatBackground } = useSettings();
   const [backgrounds, setBackgrounds] = useState([]);
-  const [selectedBg, setSelectedBg] = useState(null); // for modal
+  const [selectedBg, setSelectedBg] = useState(null);
+  
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+
+  const handleChangePassword = async () => {
+    try {
+      if (!currentPassword || !newPassword) {
+        showToast("Enter both current and new password", "error", 2000);
+        return;
+      }
+      await changePassword(newPassword, currentPassword);
+      navigate("/signin"); // force re-login
+      showToast("Password changed successfully!", "success", 2000);
+    } catch (err) {
+      console.error("Password change error", err);
+      showToast("Failed to change password: " + err.message, "error", 2000);
+    }
+  };
 
   useEffect(() => {
     const fetch = async () => {
@@ -61,7 +79,6 @@ export default function Settings() {
     };
     fetch();
   }, []);
-
 
   useEffect(() => {
     if (!profilePicFile) {
@@ -101,37 +118,31 @@ export default function Settings() {
 
   const handleLogout = async () => {
     setShowLogoutModal(true);
-    
   };
 
   const confirmLogout = async () => {
     try {
       await logout();
-      navigate("/signin")
+      navigate("/signin");
     } catch (err) {
       console.error("logout error", err);
-      showToast("Failed to logout", "error", 1000)
-      
+      showToast("Failed to logout", "error", 1000);
     }
-  }
+  };
 
   const handledeleteaccount = async () => {
-    
     setShowDeleteModal(true);
-    
-    
-
   };
 
   const confirmDelete = async () => {
     try {
       await deleteAccount();
-      navigate("/signin")
+      navigate("/signin");
     } catch (err) {
-      console.error("Delete faile", err)
-      showToast("Delete account failed, try again", "default",1000)
+      console.error("Delete faile", err);
+      showToast("Delete account failed, try again", "default", 1000);
     }
-  }
+  };
 
   const startFakeProgress = () => {
     clearInterval(progressTimerRef.current);
@@ -165,7 +176,6 @@ export default function Settings() {
     try {
       // call your existing upload helper (this may be using Firebase Storage, S3, Uploadcare, etc.)
       const uploadedUrl = await updateProfilePic(profilePicFile);
-      
 
       // stop the fake progress and animate to 100%
       stopFakeProgress();
@@ -183,17 +193,22 @@ export default function Settings() {
       const snap = await getDocs(q);
       if (!snap.empty) {
         const userRef = doc(db, "users", snap.docs[0].id);
-        await updateDoc(userRef, { profilePic: uploadedUrl, updatedAt: serverTimestamp() });
+        await updateDoc(userRef, {
+          profilePic: uploadedUrl,
+          updatedAt: serverTimestamp(),
+        });
         setPersistedPic(uploadedUrl); // show new image immediately
       }
 
       // success toast
-      if (typeof showToast === "function") showToast("Profile picture uploaded", "success");
+      if (typeof showToast === "function")
+        showToast("Profile picture uploaded", "success");
     } catch (err) {
       console.error("Image upload error:", err);
       stopFakeProgress();
       setUploadProgress(0);
-      if (typeof showToast === "function") console.log("Failed to upload profile picture", "error");
+      if (typeof showToast === "function")
+        console.log("Failed to upload profile picture", "error");
     } finally {
       // cleanup UI state after small delay so animation feels smooth
       setTimeout(() => {
@@ -473,17 +488,29 @@ export default function Settings() {
       </div>
 
       {/* Password Section */}
+      {/* Password Section */}
       <div>
-        <label>Password</label>
+        <label className="block font-semibold mb-1">Current Password</label>
         <input
           type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="border rounded px-3 py-2 w-full"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          className="border rounded px-3 py-2 w-full mb-3"
+          placeholder="Enter current password"
         />
+
+        <label className="block font-semibold mb-1">New Password</label>
+        <input
+          type="password"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          className="border rounded px-3 py-2 w-full"
+          placeholder="Enter new password"
+        />
+
         <button
-          onClick={() => changePassword(password)}
-          className="bg-purple-600 text-white px-4 py-1 rounded mt-2"
+          onClick={handleChangePassword}
+          className="bg-purple-600 text-white px-4 py-1 rounded mt-3"
         >
           Update Password
         </button>
@@ -577,7 +604,7 @@ export default function Settings() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setShowLogoutModal(false)} 
+            onClick={() => setShowLogoutModal(false)}
           >
             <motion.div
               initial={{ y: "100%" }}
@@ -616,7 +643,7 @@ export default function Settings() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setShowDeleteModal(false)} 
+            onClick={() => setShowDeleteModal(false)}
           >
             <motion.div
               initial={{ y: "100%" }}
@@ -624,7 +651,7 @@ export default function Settings() {
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 120 }}
               className="bg-white w-full max-w-md rounded-t-2xl p-6 shadow-lg"
-              onClick={(e) => e.stopPropagation()} 
+              onClick={(e) => e.stopPropagation()}
             >
               <h2 className="text-lg font-bold text-center text-purple-700 mb-4">
                 Sure you want to delete your account?

@@ -1,12 +1,37 @@
-# React + Vite
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Chirp is a lightweight, privacy-first instant messaging web app built with React, Firebase, and Firestore.  
+Instead of traditional usernames or phone numbers, Chirp uses a unique 5-character PIN for identification.  
+This makes connecting with people simple, secure, and easy to remember.
 
-Currently, two official plugins are available:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-## Expanding the ESLint configuration
+About the Project
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Traditional messaging platforms often require phone numbers or usernames, which can lead to privacy concerns, availability issues, or confusion. Chirp solves this by assigning every user a unique PIN that is easy to share and remember. Users can connect and start conversations without revealing personal details until they choose to.
+
+The app is designed mobile-first with PWA support, meaning it works seamlessly on mobile devices while remaining accessible on desktop. 
+
+
+
+ Features
+
+
+Profile Setup — Upload a profile picture.
+Real-Time Messaging — Instant text communication powered by Firestore.
+Home Screen — Shows profile, PIN, and recent conversations.
+Settings Page — Update profile, change email or password, log out, or delete account.
+Mobile-First Design — Optimized for mobile with PWA support.
+Play games with the one you are chatting with.
+
+
+
+Tech Stack
+
+ Frontend: React (JavaScript), TailwindCSS
+ Backend/Database: Firebase Authentication and Firestore
+ Notifications: Firebase Cloud Messaging
+ Email Services: EmailJS
+ Deployment:  Vercel
+
+
+
